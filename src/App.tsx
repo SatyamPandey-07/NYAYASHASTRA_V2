@@ -8,6 +8,8 @@ import Comparison from "./pages/Comparison";
 import Documents from "./pages/Documents";
 import NotFound from "./pages/NotFound";
 import SignInPage from "./pages/SignInPage";
+import Booking from "./pages/Booking";
+import BookingConfirmation from "./pages/BookingConfirmation";
 import { LandingPage } from "./components/LandingPage";
 
 import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
@@ -56,8 +58,8 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route 
-                path="/" 
+              <Route
+                path="/"
                 element={
                   <>
                     <SignedIn>
@@ -67,11 +69,13 @@ const App = () => (
                       <LandingPageWrapper />
                     </SignedOut>
                   </>
-                } 
+                }
               />
               <Route path="/sign-in" element={<SignInPage />} />
               <Route path="/comparison" element={<SignedIn><Comparison /></SignedIn>} />
               <Route path="/documents" element={<SignedIn><Documents /></SignedIn>} />
+              <Route path="/booking" element={<SignedIn><Booking /></SignedIn>} />
+              <Route path="/booking-confirmation" element={<SignedIn><BookingConfirmation /></SignedIn>} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

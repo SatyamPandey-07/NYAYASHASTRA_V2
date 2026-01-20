@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     
     # Clerk Authentication
     clerk_secret_key: str = ""
+    
+    # SMTP Email Configuration
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@nyayashastra.com"
+    smtp_from_name: str = "NyayaShastra Legal Services"
 
     
     @property
@@ -66,6 +74,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra fields from .env
 
 
 # Global settings instance

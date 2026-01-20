@@ -247,3 +247,59 @@ class DocumentUpload(Base):
     
     # Session link
     session_id = Column(String(100))
+
+
+class Booking(Base):
+    """Lawyer consultation booking model."""
+    __tablename__ = "bookings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Clerk user information
+    clerk_user_id = Column(String(255), nullable=False, index=True)
+    user_email = Column(String(255), nullable=False)
+    
+    # Booking identification
+    booking_id = Column(String(50), unique=True, nullable=False, index=True)
+    
+    # Consultation details
+    domain = Column(String(50), nullable=False)  # IT, Civil, Criminal, Family, Corporate
+    date = Column(String(20), nullable=False)  # YYYY-MM-DD
+    time = Column(String(20), nullable=False)  # HH:MM format
+    category = Column(String(50), nullable=False)  # urgent, sue, arrest, general
+    message = Column(Text)  # Optional additional message
+    
+    # Assigned lawyer
+    lawyer_name = Column(String(255), nullable=False)
+    
+    # Meeting details
+    meeting_id = Column(String(20), nullable=False)  # 9-digit meeting ID
+    meeting_password = Column(String(10), nullable=False)  # 6-char password
+    
+    # Status
+    status = Column(String(50), default="confirmed")  # confirmed, cancelled, completed
+    
+    # Timestamps
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    def to_dict(self):
+        """Convert booking to dictionary."""
+        return {
+            "id": self.id,
+            "booking_id": self.booking_id,
+            "clerk_user_id": self.clerk_user_id,
+            "user_email": self.user_email,
+            "domain": self.domain,
+            "date": self.date,
+            "time": self.time,
+            "category": self.category,
+            "message": self.message,
+            "lawyer_name": self.lawyer_name,
+            "meeting_id": self.meeting_id,
+            "meeting_password": self.meeting_password,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+

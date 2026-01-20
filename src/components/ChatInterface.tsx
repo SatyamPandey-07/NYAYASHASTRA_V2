@@ -27,6 +27,7 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useChatHistory } from "@/hooks/useApi";
 import { CitationViewer } from "./CitationViewer";
+import { ConsultLawyerButton } from "./ConsultLawyerButton";
 
 // Domain options for regulatory filtering
 const LEGAL_DOMAINS = [
@@ -237,11 +238,11 @@ export const ChatInterface = ({
           prev.map((doc) =>
             doc.id === docId
               ? {
-                  ...doc,
-                  id: data.documentId || docId,
-                  status: "ready",
-                  progress: 100,
-                }
+                ...doc,
+                id: data.documentId || docId,
+                status: "ready",
+                progress: 100,
+              }
               : doc,
           ),
         );
@@ -595,8 +596,8 @@ export const ChatInterface = ({
                   // Process text to fit width
                   const content =
                     msg.role === "assistant" &&
-                    language === "hi" &&
-                    msg.contentHindi
+                      language === "hi" &&
+                      msg.contentHindi
                       ? msg.contentHindi
                       : msg.content;
                   const splitText = doc.splitTextToSize(
@@ -669,6 +670,11 @@ export const ChatInterface = ({
                   </motion.button>
                 ))}
               </div>
+
+              {/* Consult a Lawyer CTA */}
+              <div className="mt-8">
+                <ConsultLawyerButton language={language} variant="banner" />
+              </div>
             </motion.div>
           )}
 
@@ -683,11 +689,10 @@ export const ChatInterface = ({
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] md:max-w-[75%] relative group ${
-                    message.role === "user"
+                  className={`max-w-[85%] md:max-w-[75%] relative group ${message.role === "user"
                       ? "bg-primary/10 border border-primary/20 rounded-2xl rounded-br-md px-5 py-4"
                       : "bg-card/80 backdrop-blur-sm border border-border rounded-2xl rounded-bl-md px-6 py-5 shadow-lg"
-                  }`}
+                    }`}
                 >
                   {/* Message Header */}
                   {message.role === "assistant" && (
@@ -966,11 +971,10 @@ export const ChatInterface = ({
                                 setSelectedDomain(domain.id);
                                 setShowDomainDropdown(false);
                               }}
-                              className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm transition-all duration-200 ${
-                                selectedDomain === domain.id
+                              className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm transition-all duration-200 ${selectedDomain === domain.id
                                   ? "bg-primary/15 text-primary font-bold shadow-sm"
                                   : "hover:bg-primary/5 text-foreground/80 hover:text-primary"
-                              }`}
+                                }`}
                             >
                               <span className="text-xl filter drop-shadow-sm">
                                 {domain.icon}
@@ -1080,9 +1084,8 @@ export const ChatInterface = ({
                         : "सुन रहे हैं..."
                       : placeholderText
                   }
-                  className={`flex-1 min-h-[60px] max-h-[200px] resize-none text-base border-0 bg-transparent focus:ring-0 focus-visible:ring-0 px-4 py-4 pr-24 ${
-                    language === "hi" ? "text-hindi" : ""
-                  }`}
+                  className={`flex-1 min-h-[60px] max-h-[200px] resize-none text-base border-0 bg-transparent focus:ring-0 focus-visible:ring-0 px-4 py-4 pr-24 ${language === "hi" ? "text-hindi" : ""
+                    }`}
                   disabled={isProcessing}
                 />
 
@@ -1093,11 +1096,10 @@ export const ChatInterface = ({
                     variant="ghost"
                     size="icon"
                     disabled={isProcessing}
-                    className={`h-10 w-10 rounded-full transition-all ${
-                      isListening
+                    className={`h-10 w-10 rounded-full transition-all ${isListening
                         ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
                         : "hover:bg-primary/10 text-muted-foreground hover:text-primary"
-                    }`}
+                      }`}
                     title={
                       language === "en"
                         ? isListening
@@ -1129,8 +1131,8 @@ export const ChatInterface = ({
             </div>
 
             {/* Helper Text */}
-            <div className="flex items-center justify-center gap-4 mt-3">
-              <p className="text-xs text-muted-foreground text-center">
+            <div className="flex items-center justify-between gap-4 mt-3">
+              <p className="text-xs text-muted-foreground text-center flex-1">
                 {speechSupported ? (
                   <>
                     <Volume2 className="h-3 w-3 inline mr-1" />
@@ -1144,6 +1146,7 @@ export const ChatInterface = ({
                   "अपना कानूनी प्रश्न टाइप करें या भेजने के लिए Enter दबाएं"
                 )}
               </p>
+              <ConsultLawyerButton language={language} variant="compact" />
             </div>
           </div>
         </div>

@@ -12,7 +12,9 @@ import sys
 
 from app.config import settings
 from app.database import init_db
-from app.routes import chat, statutes, documents, cases
+from app.routes import chat, statutes, documents, cases, booking
+# Import models to ensure they are registered with SQLAlchemy
+from app.models import Booking  # noqa: F401
 
 # Configure logging
 logging.basicConfig(
@@ -115,6 +117,7 @@ app.include_router(chat.router)
 app.include_router(statutes.router)
 app.include_router(documents.router)
 app.include_router(cases.router)
+app.include_router(booking.router)
 
 
 # Health check endpoint
