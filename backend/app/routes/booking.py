@@ -39,6 +39,8 @@ class BookingRequest(BaseModel):
     category: str = Field(..., description="Category: urgent, sue, arrest, general")
     message: Optional[str] = Field(None, description="Additional message for the lawyer")
     user_email: str = Field(..., description="User's email address")
+    transaction_id: Optional[str] = Field(None, description="Payment transaction ID")
+    amount_paid: Optional[int] = Field(None, description="Amount paid in INR")
 
     class Config:
         json_schema_extra = {
@@ -48,9 +50,12 @@ class BookingRequest(BaseModel):
                 "time": "14:00",
                 "category": "urgent",
                 "message": "I need help with a cyber fraud case",
-                "user_email": "user@example.com"
+                "user_email": "user@example.com",
+                "transaction_id": "TXN1234567890",
+                "amount_paid": 1000
             }
         }
+
 
 
 class BookingResponse(BaseModel):
@@ -124,7 +129,9 @@ async def book_consultation(
         lawyer_name=lawyer_name,
         meeting_id=meeting_id,
         meeting_password=meeting_password,
-        status="confirmed"
+        status="confirmed",
+        transaction_id=request.transaction_id,
+        amount_paid=request.amount_paid
     )
     
     try:

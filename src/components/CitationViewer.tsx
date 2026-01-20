@@ -33,6 +33,7 @@ interface CitationViewerProps {
     source: string;
     url: string;
     excerpt?: string;
+    takeaway?: string;
     documentContent?: string;
     highlightedSections?: HighlightedSection[];
   } | null;
@@ -189,6 +190,7 @@ export const CitationViewer = ({
   return (
     <AnimatePresence>
       <motion.div
+        key={citation?.id || 'citation-modal'}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -356,9 +358,26 @@ export const CitationViewer = ({
                     <Check className="h-4 w-4 text-green-500" />
                   ) : (
                     <Copy className="h-4 w-4" />
-                  )}
+                  ) }
                 </Button>
               </div>
+              
+              {/* Added: Actionable Takeaway Section */}
+              {citation.takeaway && (
+                <div className="mt-4 pt-4 border-t border-primary/10">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className="h-4 w-4 text-primary" />
+                    <span className="text-[11px] font-bold text-primary uppercase tracking-wider">
+                      {language === "en" ? "Expert Interpretation" : "विशेषज्ञ व्याख्या"}
+                    </span>
+                  </div>
+                  <div className="bg-primary/5 rounded-lg p-3 border-l-4 border-primary">
+                    <p className="text-sm font-medium text-foreground leading-snug">
+                      {citation.takeaway}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

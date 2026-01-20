@@ -129,6 +129,30 @@ class ResponseSynthesisAgent(BaseAgent):
             else:
                 secondary_response = primary_response
             
+            # 5. Extract takeaways and update context citations
+            parsed_citations = self._parse_takeaways(primary_response)
+            for c_info in parsed_citations:
+               # Clean the takeaway text
+               takeaway = self._clean_legal_text(c_info['takeaway'])
+               
+               # Find matching citation in context and add takeaway
+               for existing_c in context.citations:
+                   # Match by source name or section number
+                   match_source = c_info['source'].lower() in existing_c.get('title', '').lower()
+                   match_section = c_info['section'] in existing_c.get('title', '')
+                   
+                   if match_source and match_section:
+                       existing_c['takeaway'] = takeaway
+                       # Also clean the existing excerpt if it's messy
+                       if existing_c.get('excerpt'):
+                           existing_c['excerpt'] = self._clean_legal_text(existing_c['excerpt'])
+                       break
+            
+            # Clean all context excerpts regardless of takeaway match
+            for c in context.citations:
+                if c.get('excerpt'):
+                    c['excerpt'] = self._clean_legal_text(c['excerpt'])
+            
             return {
                 "en": primary_response if response_language == "en" else await self.llm_service.generate(f"Translate this to English:\n\n{primary_response}"),
                 "hi": secondary_response,
@@ -338,3 +362,89 @@ Answer with ONLY "YES" or "NO". Keep it simple.
             except:
                 pass
         return text  # Return English as fallback
+
+    def _parse_takeaways(self, response_text: str) -> List[Dict[str, str]]:
+        """Parse structured citation blocks to extract takeaways with robust regex."""
+        results = []
+        # Split by the citation header
+        blocks = re.split(r'📌 \*\*(?:Citation|Hawaala|उद्धरण):\*\*', response_text)
+        
+        for block in blocks[1:]:
+            try:
+                # More flexible regex to handle markdown variations like "- **Source:**" or "Source:"
+                source_match = re.search(r'(?:- \*\*)?Source:\s*\*\*(.*?)(?:\*\*|\n)', block, re.IGNORECASE)
+                if not source_match:
+                    source_match = re.search(r'Source:\s*(.*?)(?:\n|$)', block, re.IGNORECASE)
+                
+                section_match = re.search(r'(?:- \*\*)?Section:\s*\*\*(.*?)(?:\*\*|\n)', block, re.IGNORECASE)
+                if not section_match:
+                    section_match = re.search(r'Section:\s*(.*?)(?:\n|$)', block, re.IGNORECASE)
+                
+                # Takeaway regex - handle English, Hindi, and common labels
+                takeaway_patterns = [
+                    r'(?:- \*\*)?Takeaway:\s*\*\*(.*?)(?:\*\*|\n|$)',
+                    r'(?:- \*\*)?Takeaway:\s*(.*?)(?:\n|$)',
+                    r'(?:- \*\*)?निष्कर्ष:\s*\*\*(.*?)(?:\*\*|\n|$)',
+                    r'(?:- \*\*)?निष्कर्ष:\s*(.*?)(?:\n|$)',
+                    r'Takeaway:\s*(.*?)(?:\n\n|\n$)'
+                ]
+                
+                takeaway = ""
+                for pattern in takeaway_patterns:
+                    match = re.search(pattern, block, re.IGNORECASE | re.DOTALL)
+                    if match:
+                        takeaway = match.group(1).strip()
+                        break
+                
+                if source_match and section_match and takeaway:
+                    results.append({
+                        "source": source_match.group(1).strip(),
+                        "section": section_match.group(1).strip(),
+                        "takeaway": takeaway
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to parse citation block: {e}")
+                
+        return results
+
+    def _clean_legal_text(self, text: str) -> str:
+        """Clean messy legal text (e.g., from PDF extractions with missing spaces)."""
+        if not text:
+            return ""
+            
+        # 1. Fix missing spaces between common words/patterns
+        # e.g., "sub-section(2)ofsection330" -> "sub-section (2) of section 330"
+        
+        # Add space before/after parentheses if touching letters
+        text = re.sub(r'([a-zA-Z])(\()', r'\1 \2', text)
+        text = re.sub(r'(\))([a-zA-Z])', r'\1 \2', text)
+        
+        # Add space between common word transitions like "ofsection" or "underthis"
+        keywords = ["section", "Sanhita", "Act", "sub-section", "Code", "means", "shall", "punishable"]
+        for word in keywords:
+            # Word preceded by letter without space: "ofsection" -> "of section"
+            text = re.sub(rf'([a-z])({word})', r'\1 \2', text, flags=re.IGNORECASE)
+            # Word followed by letter without space: "section308" -> "section 308"
+            text = re.sub(rf'({word})([a-z0-9])', r'\1 \2', text, flags=re.IGNORECASE)
+            
+        # Add space between lowercase and uppercase (CamelCase issues from OCR)
+        text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+        
+        # Fix specific concatenated common legal words
+        concats = {
+            r'sub-section\((\d+)\)': r'sub-section (\1)',
+            r'section(\d+)': r'section \1',
+            r'ofsection': 'of section',
+            r'underthis': 'under this',
+            r'withorwithout': 'with or without',
+            r'sixmonthsormore': 'six months or more',
+            r'aswellas': 'as well as',
+            r'meansathing': 'means a thing'
+        }
+        for pattern, replacement in concats.items():
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+            
+        # 2. Fix multiple spaces and newlines
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text

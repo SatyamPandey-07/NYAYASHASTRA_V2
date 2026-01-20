@@ -21,6 +21,9 @@ import {
   FileCheck,
   Eye,
   Download,
+  Copy,
+  Check,
+  Share2,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { Button } from "./ui/button";
@@ -190,6 +193,7 @@ export const ChatInterface = ({
   );
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDocument[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const domainDropdownRef = useRef<HTMLDivElement>(null);
@@ -215,16 +219,16 @@ export const ChatInterface = ({
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    const docId = `doc_${Date.now()}`;
+    const localDocId = `doc_${Date.now()}`;
 
     setIsUploading(true);
     setUploadedDocs((prev) => [
       ...prev,
       {
-        id: docId,
+        id: localDocId,
         filename: file.name,
         status: "uploading",
-        progress: 0,
+        progress: 10,
       },
     ]);
 
@@ -242,22 +246,29 @@ export const ChatInterface = ({
 
       if (response.ok) {
         const data = await response.json();
+        const serverDocId = data.document_id || localDocId;
+        
+        // Update with server document ID
         setUploadedDocs((prev) =>
           prev.map((doc) =>
-            doc.id === docId
+            doc.id === localDocId
               ? {
                 ...doc,
-                id: data.documentId || docId,
-                status: "ready",
-                progress: 100,
+                id: serverDocId,
+                status: "processing",
+                progress: 30,
               }
               : doc,
           ),
         );
+        
+        // Start polling for status updates
+        pollDocumentStatus(serverDocId, localDocId);
       } else {
+        const errorData = await response.json().catch(() => ({}));
         setUploadedDocs((prev) =>
           prev.map((doc) =>
-            doc.id === docId ? { ...doc, status: "error" } : doc,
+            doc.id === localDocId ? { ...doc, status: "error", error: errorData.detail || "Upload failed" } : doc,
           ),
         );
       }
@@ -265,7 +276,7 @@ export const ChatInterface = ({
       console.error("Upload failed:", error);
       setUploadedDocs((prev) =>
         prev.map((doc) =>
-          doc.id === docId ? { ...doc, status: "error" } : doc,
+          doc.id === localDocId ? { ...doc, status: "error", error: "Network error" } : doc,
         ),
       );
     } finally {
@@ -274,6 +285,52 @@ export const ChatInterface = ({
         fileInputRef.current.value = "";
       }
     }
+  };
+  
+  // Poll document processing status
+  const pollDocumentStatus = async (docId: string, localId: string) => {
+    const maxAttempts = 30; // Max 60 seconds
+    let attempts = 0;
+    
+    const poll = async () => {
+      try {
+        const response = await fetch(`http://localhost:8000/api/documents/status/${docId}`);
+        if (!response.ok) {
+          throw new Error("Failed to get status");
+        }
+        
+        const status = await response.json();
+        
+        setUploadedDocs((prev) =>
+          prev.map((doc) =>
+            doc.id === docId
+              ? {
+                ...doc,
+                status: status.status,
+                progress: status.progress || 0,
+                summary: status.summary,
+              }
+              : doc,
+          ),
+        );
+        
+        // Continue polling if not done
+        if (status.status !== "completed" && status.status !== "error" && attempts < maxAttempts) {
+          attempts++;
+          setTimeout(poll, 2000);
+        }
+      } catch (error) {
+        console.error("Status poll error:", error);
+        setUploadedDocs((prev) =>
+          prev.map((doc) =>
+            doc.id === docId ? { ...doc, status: "error" } : doc,
+          ),
+        );
+      }
+    };
+    
+    // Start polling after a brief delay
+    setTimeout(poll, 1500);
   };
 
   // Close dropdown when clicking outside
@@ -395,6 +452,129 @@ export const ChatInterface = ({
       }
     }
   }, [speechSupported, isListening, language]);
+
+  // Clean legal text for export (mirrors backend _clean_legal_text)
+  const cleanLegalText = (text: string): string => {
+    if (!text) return "";
+    
+    let cleaned = text;
+    
+    // Step 1: Fix punctuation spacing
+    cleaned = cleaned.replace(/([,;:])([a-zA-Z])/g, "$1 $2");
+    
+    // Step 2: Add space before/after parentheses
+    cleaned = cleaned.replace(/([a-zA-Z])\(/g, "$1 (");
+    cleaned = cleaned.replace(/\)([a-zA-Z])/g, ") $1");
+    
+    // Step 3: Fix common concatenated words
+    const fixes: [RegExp, string][] = [
+      [/ofsection/gi, "of section"],
+      [/underthis/gi, "under this"],
+      [/withorwithout/gi, "with or without"],
+      [/sixmonthsormore/gi, "six months or more"],
+      [/aswellas/gi, "as well as"],
+      [/meansathing/gi, "means a thing"],
+      [/meansa/gi, "means a "],
+      [/theword/gi, "the word"],
+      [/thesame/gi, "the same"],
+      [/speciallaw/gi, "special law"],
+      [/locallaw/gi, "local law"],
+      [/undersuchlaw/gi, "under such law"],
+      [/orunder/gi, "or under"],
+      [/andthe/gi, "and the"],
+      [/shallhave/gi, "shall have"],
+      [/meaningwhen/gi, "meaning when"],
+      [/actpunishable/gi, "act punishable"],
+      [/ispunishable/gi, "is punishable"],
+      [/imprisonmentfor/gi, "imprisonment for"],
+      [/atermofsix/gi, "a term of six"],
+      [/monthsormore/gi, "months or more"],
+      [/withoutfine/gi, "without fine"],
+      [/denotesas/gi, "denotes as"],
+      [/wellasa/gi, "well as a"],
+      [/asingle/gi, "a single"],
+      [/thingpunishable/gi, "thing punishable"],
+      [/lawwith/gi, "law with"],
+      [/lawor/gi, "law or"],
+      [/lawis/gi, "law is"],
+      [/lawunder/gi, "law under"],
+      [/fora/gi, "for a"],
+      [/asa/gi, "as a"],
+      [/aswell/gi, "as well"],
+      [/wellasa/gi, "well as a"],
+      [/underany/gi, "under any"],
+      [/whenthe/gi, "when the"],
+      [/ofthe/gi, "of the"],
+      [/inthe/gi, "in the"],
+      [/tothe/gi, "to the"],
+      [/suchlaw/gi, "such law"],
+      [/anylaw/gi, "any law"],
+      [/offencemeans/gi, "offence means"],
+      [/sectionand/gi, "section and"],
+      [/sectionor/gi, "section or"],
+      [/sectionof/gi, "section of"],
+      [/omissionsasa/gi, "omissions as a"],
+      [/omissionsas/gi, "omissions as"],
+      [/seriesof/gi, "series of"],
+      [/termof/gi, "term of"],
+      [/monthsor/gi, "months or"],
+      [/yearsor/gi, "years or"],
+      [/whetherbyhimself/gi, "whether by himself"],
+      [/orasamember/gi, "or as a member"],
+      [/anybodyof/gi, "any body of"],
+      [/incorporatedornot/gi, "incorporated or not"],
+      [/anycompanyor/gi, "any company or"],
+      [/associationor/gi, "association or"],
+      [/bodyofpersons/gi, "body of persons"],
+      [/classofthe/gi, "class of the"],
+      [/publicor/gi, "public or"],
+      [/anycommunity/gi, "any community"],
+      [/publicservant/gi, "public servant"],
+      [/fallingunder/gi, "falling under"],
+      [/anyofthe/gi, "any of the"],
+      [/descriptions/gi, "descriptions"],
+      [/everycommissioned/gi, "every commissioned"],
+      [/officerinthe/gi, "officer in the"],
+      [/everyJudge/gi, "every Judge"],
+      [/anyperson/gi, "any person"],
+      [/empoweredby/gi, "empowered by"],
+      [/lawtodischarge/gi, "law to discharge"],
+      [/adjudicatoryfunctions/gi, "adjudicatory functions"],
+      [/everyofficerof/gi, "every officer of"],
+      [/Courtincluding/gi, "Court including"],
+      [/aliquidator/gi, "a liquidator"],
+      [/receiveror/gi, "receiver or"],
+      [/commissioner/gi, "commissioner"],
+      [/whoseduty/gi, "whose duty"],
+      [/itis/gi, "it is"],
+      [/assuch/gi, "as such"],
+      [/committingdacoity/gi, "committing dacoity"],
+      [/shallbepunished/gi, "shall be punished"],
+      [/withimprisonment/gi, "with imprisonment"],
+      [/forlife/gi, "for life"],
+      [/rigorousimprisonment/gi, "rigorous imprisonment"],
+      [/mayextendto/gi, "may extend to"],
+      [/shallalsobeliable/gi, "shall also be liable"],
+      [/tofine/gi, "to fine"],
+      [/notbeless/gi, "not be less"],
+      [/thanseven/gi, "than seven"],
+    ];
+    
+    for (const [pattern, replacement] of fixes) {
+      cleaned = cleaned.replace(pattern, replacement);
+    }
+    
+    // Step 4: Add space between lowercase-uppercase (CamelCase)
+    cleaned = cleaned.replace(/([a-z])([A-Z])/g, "$1 $2");
+    
+    // Step 5: Add space between closing quote and letter
+    cleaned = cleaned.replace(/(["'])([a-zA-Z])/g, "$1 $2");
+    
+    // Step 6: Fix multiple spaces
+    cleaned = cleaned.replace(/\s+/g, " ").trim();
+    
+    return cleaned;
+  };
 
   const placeholderText =
     language === "en"
@@ -846,6 +1026,372 @@ export const ChatInterface = ({
                         </p>
                       </div>
                     )
+                  )}
+
+                  {/* Copy, Share, Download Actions for Assistant Messages */}
+                  {message.role === "assistant" && (
+                    <div className="mt-4 pt-3 border-t border-border/40 flex items-center gap-2 flex-wrap">
+                      {/* Copy Button */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-3 text-xs gap-1.5 hover:bg-primary/10"
+                        onClick={async () => {
+                          const rawText = language === "hi" && message.contentHindi
+                            ? message.contentHindi
+                            : message.content;
+                          const textToCopy = cleanLegalText(rawText);
+                          await navigator.clipboard.writeText(textToCopy);
+                          setCopiedMessageId(message.id);
+                          setTimeout(() => setCopiedMessageId(null), 2000);
+                        }}
+                      >
+                        {copiedMessageId === message.id ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-green-500" />
+                            <span className="text-green-600">
+                              {language === "en" ? "Copied!" : "कॉपी हो गया!"}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5" />
+                            {language === "en" ? "Copy" : "कॉपी करें"}
+                          </>
+                        )}
+                      </Button>
+
+                      {/* WhatsApp Share Button */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-3 text-xs gap-1.5 hover:bg-green-500/10 text-green-600"
+                        onClick={() => {
+                          const rawText = language === "hi" && message.contentHindi
+                            ? message.contentHindi
+                            : message.content;
+                          
+                          // Format for WhatsApp with bullets and paragraphs
+                          const formatForWhatsApp = (text: string): string => {
+                            // Clean the text first
+                            let cleaned = cleanLegalText(text);
+                            
+                            // Remove markdown
+                            cleaned = cleaned
+                              .replace(/\*\*/g, "")
+                              .replace(/\*/g, "")
+                              .replace(/#{1,6}\s*/g, "");
+                            
+                            // Split into sections
+                            const sections = cleaned.split(/\n\n+/);
+                            let formatted = "";
+                            
+                            sections.forEach((section, idx) => {
+                              const trimmed = section.trim();
+                              if (!trimmed) return;
+                              
+                              // Check if header
+                              const isHeader = /^(Legal Analysis|Applicable|Regulatory|Sources|Disclaimer|Section|IPC|BNS|Key|Important)/i.test(trimmed);
+                              
+                              if (isHeader) {
+                                // WhatsApp bold for headers
+                                const headerLine = trimmed.split("\n")[0].substring(0, 80);
+                                formatted += `\n*${headerLine}*\n\n`;
+                                
+                                // Get remaining content
+                                const content = trimmed.substring(headerLine.length).trim();
+                                if (content) {
+                                  const sentences = content.split(/(?<=[.;])\s+/).filter(s => s.trim().length > 5);
+                                  sentences.forEach(s => {
+                                    formatted += `• ${s.trim()}\n`;
+                                  });
+                                  formatted += "\n";
+                                }
+                              } else {
+                                // Regular section - make bullets
+                                const sentences = trimmed.split(/(?<=[.;])\s+/).filter(s => s.trim().length > 5);
+                                if (sentences.length > 1) {
+                                  sentences.forEach(s => {
+                                    formatted += `• ${s.trim()}\n`;
+                                  });
+                                } else if (sentences.length === 1) {
+                                  formatted += `${sentences[0].trim()}\n`;
+                                }
+                                formatted += "\n";
+                              }
+                            });
+                            
+                            return formatted.trim();
+                          };
+                          
+                          const formattedText = formatForWhatsApp(rawText);
+                          
+                          // Truncate for WhatsApp (increased limit to include more content)
+                          const truncated = formattedText.length > 3500
+                            ? formattedText.substring(0, 3500) + "\n\n_...Read more on NyayaShastra_"
+                            : formattedText;
+                          
+                          const shareText = encodeURIComponent(
+                            `📜 *NYAYASHASTRA*\n_AI Legal Analysis_\n${"━".repeat(20)}\n\n${truncated}\n\n${"━".repeat(20)}\n🔗 _Powered by NyayaShastra AI_`
+                          );
+                          window.open(`https://wa.me/?text=${shareText}`, "_blank");
+                        }}
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        WhatsApp
+                      </Button>
+
+                      {/* Download PDF Button */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-3 text-xs gap-1.5 hover:bg-primary/10"
+                        onClick={() => {
+                          try {
+                            const rawContent = language === "hi" && message.contentHindi
+                              ? message.contentHindi
+                              : message.content;
+                            
+                            // Deep clean function for PDF - very aggressive
+                            const deepCleanForPDF = (text: string): string => {
+                              let cleaned = text;
+                              
+                              // Fix all punctuation spacing
+                              cleaned = cleaned.replace(/([,;:])([a-zA-Z])/g, "$1 $2");
+                              cleaned = cleaned.replace(/([a-zA-Z])(\()/g, "$1 (");
+                              cleaned = cleaned.replace(/(\))([a-zA-Z])/g, ") $1");
+                              
+                              // Aggressive word separation - add space before common words
+                              const commonWords = [
+                                "the", "and", "or", "of", "to", "in", "for", "with", "under", "by",
+                                "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+                                "shall", "may", "can", "will", "would", "should", "could", "must",
+                                "any", "all", "such", "this", "that", "which", "who", "whom",
+                                "section", "Section", "sub-section", "clause", "Act", "Code",
+                                "offence", "offense", "person", "public", "court", "law", "punishment",
+                                "imprisonment", "fine", "years", "months", "days", "term",
+                                "means", "includes", "whether", "wherever", "whenever", "without"
+                              ];
+                              
+                              commonWords.forEach(word => {
+                                // Add space before if preceded by lowercase
+                                const regex = new RegExp(`([a-z])${word}`, "g");
+                                cleaned = cleaned.replace(regex, `$1 ${word}`);
+                              });
+                              
+                              // Fix lowercase followed by uppercase
+                              cleaned = cleaned.replace(/([a-z])([A-Z])/g, "$1 $2");
+                              
+                              // Fix quotes
+                              cleaned = cleaned.replace(/"([a-zA-Z])/g, '" $1');
+                              cleaned = cleaned.replace(/([a-zA-Z])"/g, '$1 "');
+                              
+                              // Remove emojis
+                              cleaned = cleaned.replace(/[\u{1F300}-\u{1F9FF}]/gu, "");
+                              
+                              // Fix multiple spaces
+                              cleaned = cleaned.replace(/\s+/g, " ");
+                              
+                              return cleaned.trim();
+                            };
+                            
+                            // Apply deep cleaning
+                            const cleanedContent = deepCleanForPDF(cleanLegalText(rawContent));
+                            
+                            const doc = new jsPDF();
+                            const pageWidth = doc.internal.pageSize.getWidth();
+                            const pageHeight = doc.internal.pageSize.getHeight();
+                            const margin = 20;
+                            const maxWidth = pageWidth - margin * 2;
+                            const lineHeight = 6; // Increased line height
+                            let currentPage = 1;
+                            
+                            // Helper to add page header
+                            const addHeader = () => {
+                              doc.setFillColor(201, 162, 39);
+                              doc.rect(0, 0, pageWidth, 12, "F");
+                              doc.setTextColor(255, 255, 255);
+                              doc.setFontSize(9);
+                              doc.setFont("helvetica", "bold");
+                              doc.text("NYAYASHASTRA - Legal Analysis Report", margin, 8);
+                              doc.setTextColor(0, 0, 0);
+                            };
+                            
+                            // Helper to add page footer
+                            const addFooter = () => {
+                              doc.setFontSize(8);
+                              doc.setTextColor(128, 128, 128);
+                              doc.text(`Page ${currentPage}`, pageWidth / 2, pageHeight - 8, { align: "center" });
+                            };
+                            
+                            // Add first page
+                            addHeader();
+                            
+                            let y = 25;
+                            
+                            // Title
+                            doc.setTextColor(0, 0, 0);
+                            doc.setFontSize(14);
+                            doc.setFont("helvetica", "bold");
+                            doc.text("Legal Analysis Report", margin, y);
+                            y += 8;
+                            
+                            // Date
+                            doc.setFontSize(9);
+                            doc.setFont("helvetica", "normal");
+                            doc.setTextColor(100, 100, 100);
+                            doc.text(`Generated: ${new Date().toLocaleString("en-IN")}`, margin, y);
+                            y += 5;
+                            
+                            // Divider
+                            doc.setDrawColor(201, 162, 39);
+                            doc.setLineWidth(0.5);
+                            doc.line(margin, y, pageWidth - margin, y);
+                            y += 10;
+                            
+                            // Content processing - convert to bullets and paragraphs
+                            doc.setTextColor(0, 0, 0);
+                            doc.setFontSize(10);
+                            doc.setFont("helvetica", "normal");
+                            
+                            // Helper to check page break
+                            const checkPageBreak = (neededSpace: number = 20) => {
+                              if (y > pageHeight - neededSpace) {
+                                addFooter();
+                                doc.addPage();
+                                currentPage++;
+                                addHeader();
+                                y = 20;
+                                doc.setFont("helvetica", "normal");
+                                doc.setFontSize(10);
+                                doc.setTextColor(0, 0, 0);
+                              }
+                            };
+                            
+                            // Clean and structure content
+                            let processedContent = cleanedContent
+                              .replace(/\*\*/g, "")
+                              .replace(/\*/g, "")
+                              .replace(/#{1,6}\s*/g, "")
+                              .replace(/\n{3,}/g, "\n\n");
+                            
+                            // Split content into logical sections
+                            const sections = processedContent.split(/\n\n+/);
+                            
+                            sections.forEach((section, sIdx) => {
+                              const trimmedSection = section.trim();
+                              if (!trimmedSection) return;
+                              
+                              // Add section spacing
+                              if (sIdx > 0) {
+                                y += 6;
+                              }
+                              
+                              checkPageBreak(30);
+                              
+                              // Check if this is a header/title
+                              const isHeader = /^(Legal Analysis|Applicable|Regulatory|Sources|Disclaimer|Section|IPC|BNS|Key|Important)/i.test(trimmedSection) ||
+                                              /^[A-Z][A-Za-z\s]{5,}:/.test(trimmedSection);
+                              
+                              if (isHeader) {
+                                // Print as section header
+                                doc.setFillColor(245, 240, 230);
+                                doc.rect(margin - 2, y - 4, maxWidth + 4, 8, "F");
+                                doc.setFont("helvetica", "bold");
+                                doc.setFontSize(10);
+                                doc.setTextColor(50, 50, 50);
+                                
+                                const headerText = trimmedSection.split("\n")[0].substring(0, 80);
+                                doc.text(headerText, margin, y);
+                                y += 10;
+                                
+                                doc.setFont("helvetica", "normal");
+                                doc.setFontSize(10);
+                                doc.setTextColor(0, 0, 0);
+                                
+                                // Process remaining content as bullets
+                                const headerContent = trimmedSection.substring(headerText.length).trim();
+                                if (headerContent) {
+                                  const sentences = headerContent
+                                    .split(/(?<=[.;])\s+/)
+                                    .filter(s => s.trim().length > 10);
+                                  
+                                  sentences.forEach((sentence) => {
+                                    checkPageBreak();
+                                    const cleanSentence = sentence.trim();
+                                    if (!cleanSentence) return;
+                                    
+                                    // Print as bullet
+                                    doc.text("•", margin + 2, y);
+                                    const bulletLines = doc.splitTextToSize(cleanSentence, maxWidth - 10);
+                                    bulletLines.forEach((bLine: string, bIdx: number) => {
+                                      checkPageBreak();
+                                      doc.text(bLine, margin + 8, y);
+                                      y += lineHeight;
+                                    });
+                                  });
+                                }
+                              } else {
+                                // Regular section - split into sentences and make bullets
+                                const sentences = trimmedSection
+                                  .split(/(?<=[.;:])\s+/)
+                                  .filter(s => s.trim().length > 5);
+                                
+                                if (sentences.length === 1 && sentences[0].length < 100) {
+                                  // Short single sentence - print as paragraph
+                                  const paraLines = doc.splitTextToSize(sentences[0], maxWidth);
+                                  paraLines.forEach((pLine: string) => {
+                                    checkPageBreak();
+                                    doc.text(pLine, margin, y);
+                                    y += lineHeight;
+                                  });
+                                } else {
+                                  // Multiple sentences - print as bullet list
+                                  sentences.forEach((sentence) => {
+                                    const cleanSentence = sentence.trim();
+                                    if (!cleanSentence || cleanSentence.length < 5) return;
+                                    
+                                    checkPageBreak();
+                                    
+                                    // Print bullet point
+                                    doc.text("•", margin + 2, y);
+                                    const bulletLines = doc.splitTextToSize(cleanSentence, maxWidth - 10);
+                                    bulletLines.forEach((bLine: string, bIdx: number) => {
+                                      checkPageBreak();
+                                      doc.text(bLine, margin + 8, y);
+                                      y += lineHeight;
+                                    });
+                                    
+                                    // Small gap between bullets
+                                    y += 1;
+                                  });
+                                }
+                              }
+                            });
+                            
+                            // Final footer
+                            addFooter();
+                            
+                            // Disclaimer on last page
+                            doc.setFontSize(7);
+                            doc.setTextColor(100, 100, 100);
+                            doc.text(
+                              "Disclaimer: This is for informational purposes only and does not constitute legal advice.",
+                              pageWidth / 2,
+                              pageHeight - 3,
+                              { align: "center" }
+                            );
+                            
+                            doc.save(`nyayashastra-legal-analysis-${Date.now()}.pdf`);
+                          } catch (err) {
+                            console.error("PDF generation error:", err);
+                          }
+                        }}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {language === "en" ? "PDF" : "PDF डाउनलोड"}
+                      </Button>
+                    </div>
                   )}
 
                   {/* User message timestamp */}

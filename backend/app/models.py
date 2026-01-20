@@ -280,6 +280,10 @@ class Booking(Base):
     # Status
     status = Column(String(50), default="confirmed")  # confirmed, cancelled, completed
     
+    # Payment details
+    transaction_id = Column(String(100))  # Payment transaction ID
+    amount_paid = Column(Integer)  # Amount in INR
+    
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
@@ -300,7 +304,10 @@ class Booking(Base):
             "meeting_id": self.meeting_id,
             "meeting_password": self.meeting_password,
             "status": self.status,
+            "transaction_id": self.transaction_id,
+            "amount_paid": self.amount_paid,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
 

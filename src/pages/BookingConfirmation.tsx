@@ -11,6 +11,8 @@ import {
     MessageSquare,
     Scale,
     Globe,
+    CreditCard,
+    Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import confetti from "canvas-confetti";
@@ -22,6 +24,8 @@ interface BookingConfirmationState {
     domain: string;
     date: string;
     time: string;
+    transactionId?: string;
+    amountPaid?: number;
 }
 
 // Domain labels
@@ -265,6 +269,58 @@ export default function BookingConfirmation() {
                             </div>
                         </div>
                     </motion.div>
+
+                    {/* Payment Receipt Card */}
+                    {state.transactionId && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 30 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.55 }}
+                            className="card-elevated rounded-2xl overflow-hidden mb-6"
+                        >
+                            <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/5 border-b border-border/50 px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="icon-container bg-green-500/10">
+                                        <Receipt className="w-5 h-5 text-green-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-green-700 dark:text-green-400">
+                                            {language === "en" ? "Payment Successful" : "भुगतान सफल"}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {language === "en" ? "Your payment has been processed" : "आपका भुगतान प्रोसेस हो गया है"}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="p-6">
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="flex items-start gap-4">
+                                        <div className="icon-container">
+                                            <CreditCard className="w-5 h-5 text-primary" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-muted-foreground mb-0.5">
+                                                {language === "en" ? "Transaction ID" : "ट्रांजेक्शन आईडी"}
+                                            </p>
+                                            <p className="font-mono font-semibold text-sm">{state.transactionId}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-4">
+                                        <div className="icon-container bg-green-500/10">
+                                            <span className="text-lg">₹</span>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-muted-foreground mb-0.5">
+                                                {language === "en" ? "Amount Paid" : "भुगतान राशि"}
+                                            </p>
+                                            <p className="text-xl font-bold text-green-600">₹{state.amountPaid}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
 
                     {/* Email Notice */}
                     <motion.div

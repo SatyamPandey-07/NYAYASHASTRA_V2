@@ -32,6 +32,7 @@ export interface Citation {
   sourceName?: string;
   url: string;
   excerpt?: string;
+  takeaway?: string;
   year?: number;
   court?: string;
   type?: string;
@@ -434,6 +435,19 @@ export async function warmUpDatabase(): Promise<void> {
     // Silently fail - this is just a warmup
     console.log("Database warmup in progress...");
   }
+}
+
+/**
+ * Get dashboard stats summary
+ */
+export async function getDashboardStats(): Promise<{
+  savedStatutes: number;
+  casesAnalyzed: number;
+  activeSessions: number;
+}> {
+  const response = await fetch(`${API_BASE_URL}/api/stats/summary`);
+  if (!response.ok) throw new Error(`API error: ${response.statusText}`);
+  return response.json();
 }
 
 // ============== Chat History API ==============

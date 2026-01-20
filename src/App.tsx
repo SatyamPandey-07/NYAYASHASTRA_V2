@@ -10,6 +10,7 @@ import NotFound from "./pages/NotFound";
 import SignInPage from "./pages/SignInPage";
 import Booking from "./pages/Booking";
 import BookingConfirmation from "./pages/BookingConfirmation";
+import MyBookings from "./pages/MyBookings";
 import { LandingPage } from "./components/LandingPage";
 
 import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
@@ -76,6 +77,7 @@ const App = () => (
               <Route path="/documents" element={<SignedIn><Documents /></SignedIn>} />
               <Route path="/booking" element={<SignedIn><Booking /></SignedIn>} />
               <Route path="/booking-confirmation" element={<SignedIn><BookingConfirmation /></SignedIn>} />
+              <Route path="/my-bookings" element={<SignedIn><MyBookings /></SignedIn>} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -59,6 +59,96 @@ class CitationAgent(BaseAgent):
         self.description = "Generates verifiable citations linked to official sources"
         self.color = "#ff4081"
     
+    def _clean_legal_text(self, text: str) -> str:
+        """Clean messy legal text from PDF extractions - AGGRESSIVE VERSION."""
+        if not text:
+            return ""
+        
+        # Step 1: Fix punctuation spacing (comma, semicolon, colon without space after)
+        text = re.sub(r'([,;:])([a-zA-Z])', r'\1 \2', text)
+        
+        # Step 2: Add space before/after parentheses touching letters
+        text = re.sub(r'([a-zA-Z])(\()', r'\1 \2', text)
+        text = re.sub(r'(\))([a-zA-Z])', r'\1 \2', text)
+        
+        # Step 3: Add space before common legal terms (most important fix)
+        legal_terms = [
+            'section', 'Section', 'sub-section', 'Sub-section',
+            'Act', 'Sanhita', 'Code', 'law', 'Law',
+            'under', 'Under', 'with', 'With', 'without', 'Without',
+            'the', 'The', 'and', 'And', 'or', 'Or',
+            'shall', 'Shall', 'means', 'Means', 'is', 'Is',
+            'for', 'For', 'of', 'Of', 'in', 'In', 'to', 'To',
+            'punishable', 'Punishable', 'imprisonment', 'Imprisonment',
+            'offence', 'Offence', 'person', 'Person',
+            'any', 'Any', 'such', 'Such', 'same', 'Same',
+            'thing', 'Thing', 'act', 'when', 'When',
+            'well', 'Well', 'series', 'Series', 'single', 'Single',
+            'denotes', 'Denotes', 'omission', 'Omission',
+            'special', 'Special', 'local', 'Local',
+            'months', 'Months', 'years', 'Years', 'term', 'Term',
+            'fine', 'Fine', 'whether', 'Whether',
+        ]
+        
+        for term in legal_terms:
+            # Add space before term if preceded by lowercase letter
+            text = re.sub(rf'([a-z])({term})', rf'\1 \2', text)
+        
+        # Step 4: Specific compound word fixes
+        compounds = [
+            (r'thingpunishable', 'thing punishable'),
+            (r'lawwith', 'law with'),
+            (r'lawor', 'law or'),
+            (r'lawis', 'law is'),
+            (r'lawunder', 'law under'),
+            (r'fora', 'for a'),
+            (r'asa', 'as a'),
+            (r'aswell', 'as well'),
+            (r'wellasa', 'well as a'),
+            (r'underany', 'under any'),
+            (r'orunder', 'or under'),
+            (r'andthe', 'and the'),
+            (r'whenthe', 'when the'),
+            (r'ofthe', 'of the'),
+            (r'inthe', 'in the'),
+            (r'tothe', 'to the'),
+            (r'suchlaw', 'such law'),
+            (r'samelaw', 'same law'),
+            (r'anylaw', 'any law'),
+            (r'speciallaw', 'special law'),
+            (r'locallaw', 'local law'),
+            (r'actpunishable', 'act punishable'),
+            (r'ispunishable', 'is punishable'),
+            (r'offencemeans', 'offence means'),
+            (r'meansathing', 'means a thing'),
+            (r'meansa', 'means a'),
+            (r'sectionand', 'section and'),
+            (r'sectionor', 'section or'),
+            (r'sectionof', 'section of'),
+            (r'omissionsasa', 'omissions as a'),
+            (r'omissionsas', 'omissions as'),
+            (r'seriesof', 'series of'),
+            (r'termof', 'term of'),
+            (r'monthsor', 'months or'),
+            (r'yearsor', 'years or'),
+            (r'"offence"', '"offence" '),
+            (r'"person"', '"person" '),
+        ]
+        
+        for pattern, replacement in compounds:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        
+        # Step 5: Add space between lowercase-uppercase (CamelCase artifacts)
+        text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+        
+        # Step 6: Add space between closing quote and letter
+        text = re.sub(r'(["\'])([a-zA-Z])', r'\1 \2', text)
+        
+        # Step 7: Fix multiple spaces
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+    
     async def process(self, context: AgentContext) -> AgentContext:
         """Generate citations for statutes and case laws."""
         
@@ -144,15 +234,28 @@ class CitationAgent(BaseAgent):
             url = f"https://indiankanoon.org/search/?formInput={act_code}%20section%20{section}"
             source = "indiankanoon"
         
-        # Make sure we have content for excerpt
+        # Make sure we have content for excerpt - CLEAN IT
         excerpt = content[:500] + "..." if len(content) > 500 else content
         if not excerpt:
             excerpt = f"Section {section} of {act_name}: {title}"
         
+        # Clean the excerpt text
+        excerpt = self._clean_legal_text(excerpt)
+        
+        # Build robust title - handle missing fields gracefully
+        if section and title:
+            citation_title = f"{act_name or act_code} - Section {section}: {title}"
+        elif section:
+            citation_title = f"{act_name or act_code} - Section {section}"
+        elif title:
+            citation_title = f"{act_name or act_code}: {title}"
+        else:
+            citation_title = f"{act_name or act_code} - Legal Provision"
+        
         return {
             "id": str(citation_id),
-            "title": f"{act_name} - Section {section}: {title}",
-            "title_hi": statute.get("title_hi", ""),
+            "title": citation_title,
+            "title_hi": statute.get("title_hi", "") or "",
             "source": source,
             "source_name": "Indian Kanoon",
             "url": url,
@@ -160,7 +263,7 @@ class CitationAgent(BaseAgent):
             "year": statute.get("year_enacted"),
             "type": "statute",
             "verified": True,
-            "section_number": section,
+            "section_number": section or "N/A",
             "act_code": act_code
         }
     
@@ -196,6 +299,10 @@ class CitationAgent(BaseAgent):
         
         summary = case.get("summary_en", "")
         excerpt = summary[:300] + "..." if len(summary) > 300 else summary if summary else None
+        
+        # Clean excerpt if present
+        if excerpt:
+            excerpt = self._clean_legal_text(excerpt)
         
         return {
             "id": str(citation_id),

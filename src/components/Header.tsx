@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Scale, Globe, Menu, MessageSquare, FileText } from 'lucide-react';
+import { Scale, Globe, Menu, MessageSquare, FileText, CalendarCheck } from 'lucide-react';
 import { Button } from './ui/button';
 import { UserButton, SignedIn } from "@clerk/clerk-react";
 import { Link } from 'react-router-dom';
@@ -77,6 +77,14 @@ export const Header = ({ language, onLanguageChange, onMenuClick, onLogoClick }:
                 <FileText className="h-4 w-4 text-primary" />
                 <span className="text-sm font-medium">
                   {language === 'en' ? 'Documents' : 'दस्तावेज़'}
+                </span>
+              </Button>
+            </Link>
+            <Link to="/my-bookings">
+              <Button variant="ghost" size="sm" className="gap-2 rounded-full hover:bg-primary/10">
+                <CalendarCheck className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium">
+                  {language === 'en' ? 'My Bookings' : 'मेरी बुकिंग'}
                 </span>
               </Button>
             </Link>

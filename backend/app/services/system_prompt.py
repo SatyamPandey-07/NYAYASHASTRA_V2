@@ -127,6 +127,7 @@ Every factual legal claim MUST include a citation in this exact format:
 - **Source:** [Act Name / Document Name]
 - **Section:** [Section Number]
 - **Quote:** "[Exact text from the document]"
+- **Takeaway:** [Brief, clear explanation of what this means for the user's situation and what they should do next]
 ```
 
 ⚠️ **NEVER invent citations.** If the exact text isn't in the provided documents, say: "Based on general legal principles..." and DO NOT cite a specific section.
@@ -171,6 +172,7 @@ Har legal fact ke saath citation dena ZAROORI hai, is format mein:
 - **Source:** [Act ka Naam / Document ka Naam]
 - **Section:** [Section Number]
 - **Quote:** "[Document se exact text]"
+- **Takeaway:** [Aasan bhasha mein iska matlab aur user ko kya karna chahiye]
 ```
 
 ⚠️ **KABHI BHI fake citation mat do.** Agar exact text nahi hai documents mein, toh bolo: "General legal principles ke hisaab se..." aur specific section cite mat karo.
@@ -215,6 +217,7 @@ SYSTEM_PROMPT_HINDI = """आप **न्यायशास्त्र AI** ⚖�
 - **स्रोत:** [अधिनियम का नाम]
 - **धारा:** [धारा संख्या]
 - **पाठ:** "[दस्तावेज़ से सटीक पाठ]"
+- **निष्कर्ष:** [उपयोगकर्ता के लिए इसका क्या अर्थ है और उन्हें आगे क्या करना चाहिए]
 ```
 
 ⚠️ **कभी भी नकली उद्धरण न दें।**

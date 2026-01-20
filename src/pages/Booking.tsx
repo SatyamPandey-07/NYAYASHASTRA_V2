@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { PaymentModal, CONSULTATION_PRICING } from "@/components/PaymentModal";
 
 // Domain options with icons
 const DOMAINS = [
@@ -143,6 +144,8 @@ export default function Booking() {
     category: "",
     message: "",
   });
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [transactionId, setTransactionId] = useState<string | null>(null);
 
   // Get minimum date (today)
   const getMinDate = () => {
@@ -171,14 +174,21 @@ export default function Booking() {
         return formData.domain !== "";
       case 3:
         return formData.domain !== "" && formData.date !== "" && formData.time !== "";
+      case 4:
+        return formData.domain !== "" && formData.date !== "" && formData.time !== "" && formData.category !== "";
       default:
         return true;
     }
   };
 
   const handleNext = () => {
-    if (currentStep < 3 && canProceedToStep(currentStep + 1)) {
-      setCurrentStep(currentStep + 1);
+    if (currentStep < 4 && canProceedToStep(currentStep + 1)) {
+      if (currentStep === 3) {
+        // Step 3 -> Step 4: Show payment modal
+        setShowPaymentModal(true);
+      } else {
+        setCurrentStep(currentStep + 1);
+      }
     }
   };
 
@@ -188,7 +198,20 @@ export default function Booking() {
     }
   };
 
-  const handleSubmit = async () => {
+  // Handle successful payment
+  const handlePaymentSuccess = (txnId: string) => {
+    setTransactionId(txnId);
+    setShowPaymentModal(false);
+    // Auto-submit after payment
+    handleSubmitAfterPayment(txnId);
+  };
+
+  // Get consultation price
+  const getConsultationPrice = (): number => {
+    return CONSULTATION_PRICING[formData.category as keyof typeof CONSULTATION_PRICING]?.amount || 500;
+  };
+
+  const handleSubmitAfterPayment = async (txnId: string) => {
     if (!user || !formData.category) {
       toast({
         title: language === "en" ? "Error" : "त्रुटि",
@@ -215,6 +238,8 @@ export default function Booking() {
           category: formData.category,
           message: formData.message || null,
           user_email: user.primaryEmailAddress?.emailAddress || "",
+          transaction_id: txnId,
+          amount_paid: getConsultationPrice(),
         }),
       });
 
@@ -234,6 +259,8 @@ export default function Booking() {
           domain: formData.domain,
           date: formData.date,
           time: formData.time,
+          transactionId: txnId,
+          amountPaid: getConsultationPrice(),
         },
       });
     } catch (error) {
@@ -268,6 +295,7 @@ export default function Booking() {
     1: { en: "Select Domain", hi: "डोमेन चुनें" },
     2: { en: "Schedule", hi: "समय निर्धारित करें" },
     3: { en: "Details", hi: "विवरण" },
+    4: { en: "Payment", hi: "भुगतान" },
   };
 
   return (
@@ -651,25 +679,38 @@ export default function Booking() {
             </Button>
           ) : (
             <Button
-              onClick={handleSubmit}
+              onClick={handleNext}
               disabled={isSubmitting || !formData.category}
               className="px-8 py-3 rounded-xl btn-shimmer glow-primary"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  {language === "en" ? "Booking..." : "बुक हो रहा है..."}
+                  {language === "en" ? "Processing..." : "प्रोसेसिंग..."}
                 </>
               ) : (
                 <>
                   <Check className="w-5 h-5 mr-2" />
-                  {language === "en" ? "Confirm Booking" : "बुकिंग की पुष्टि करें"}
+                  {language === "en" 
+                    ? `Pay ₹${getConsultationPrice()} & Confirm` 
+                    : `₹${getConsultationPrice()} भुगतान करें`}
                 </>
               )}
             </Button>
           )}
         </div>
       </div>
+
+      {/* Payment Modal */}
+      <PaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        onSuccess={handlePaymentSuccess}
+        amount={getConsultationPrice()}
+        domain={formData.domain}
+        category={formData.category}
+        language={language}
+      />
     </div>
   );
 }

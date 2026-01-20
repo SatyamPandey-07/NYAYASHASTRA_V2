@@ -4,7 +4,7 @@ import { Search, Plus, MessageSquare, History, Clock, BookOpen, Loader2 } from '
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useEffect, useState } from 'react';
-import { warmUpDatabase } from '@/services/api';
+import { warmUpDatabase, getDashboardStats } from '@/services/api';
 import { useChatHistory } from '@/hooks/useApi';
 
 interface AuthenticatedDashboardProps {
@@ -46,31 +46,8 @@ export const AuthenticatedDashboard = ({ language, onStartChat, onLoadSession }:
   const fetchStats = async () => {
     setStatsLoading(true);
     try {
-      // Fetch statute count from backend
-      const statuteRes = await fetch('http://localhost:8000/api/statutes/?limit=1');
-      if (statuteRes.ok) {
-        // Get total from header or estimate
-        const data = await statuteRes.json();
-        // Fetch all to get count (or add a count endpoint)
-        const allStatutesRes = await fetch('http://localhost:8000/api/statutes/');
-        if (allStatutesRes.ok) {
-          const allData = await allStatutesRes.json();
-          setStats(prev => ({
-            ...prev,
-            savedStatutes: allData.length || 0
-          }));
-        }
-      }
-
-      // Fetch case law count
-      const caseRes = await fetch('http://localhost:8000/api/cases/');
-      if (caseRes.ok) {
-        const caseData = await caseRes.json();
-        setStats(prev => ({
-          ...prev,
-          casesAnalyzed: caseData.length || 0
-        }));
-      }
+      const data = await getDashboardStats();
+      setStats(data);
     } catch (error) {
       console.log('Stats fetch error (backend may be starting):', error);
     } finally {
@@ -95,8 +72,8 @@ export const AuthenticatedDashboard = ({ language, onStartChat, onLoadSession }:
     visible: { opacity: 1, scale: 1 }
   };
 
-  // Get display chats (limit to 3 for the dashboard)
-  const displayChats = recentChats.slice(0, 3);
+  // Get display chats (limit to 6 for the dashboard)
+  const displayChats = recentChats.slice(0, 6);
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#faf7f2] dark:bg-[#0f1115]">
@@ -155,29 +132,41 @@ export const AuthenticatedDashboard = ({ language, onStartChat, onLoadSession }:
                 />
               </div>
 
-              {/* Chat Cards Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-12">
+              {/* Chat History Header */}
+              <div className="flex items-center justify-between mt-12 mb-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-6 bg-primary rounded-full" />
+                  <h4 className="text-xl font-serif font-bold text-foreground">
+                    {language === 'en' ? 'Recent Conversations' : 'हाल की बातचीत'}
+                  </h4>
+                </div>
+                {recentChats.length > 6 && (
+                  <Button variant="ghost" size="sm" className="text-primary hover:text-primary/80 font-bold">
+                    {language === 'en' ? `View All (${recentChats.length})` : `सभी देखें (${recentChats.length})`}
+                  </Button>
+                )}
+              </div>
+
+              {/* Chat Cards Grid - Up to 2 rows */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {historyLoading ? (
                   // Loading state
-                  [...Array(3)].map((_, idx) => (
+                  [...Array(6)].map((_, idx) => (
                     <motion.div
                       key={idx}
                       variants={itemVariants}
                       className="relative"
                     >
-                      <div className="relative bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-lg border border-slate-200 dark:border-slate-800 h-64 flex flex-col animate-pulse">
+                      <div className="relative bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-md border border-slate-200 dark:border-slate-800 h-56 flex flex-col animate-pulse">
                         <div className="absolute left-0 top-0 bottom-0 w-8 bg-slate-100 dark:bg-slate-800 flex flex-col items-center justify-around py-4 border-r border-slate-200 dark:border-slate-700">
-                          {[...Array(8)].map((_, i) => (
-                            <div key={i} className="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-600 shadow-inner" />
+                          {[...Array(6)].map((_, i) => (
+                            <div key={i} className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600" />
                           ))}
                         </div>
-                        <div className="ml-8 p-6 flex-1 flex flex-col">
-                          <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-24 mb-4"></div>
-                          <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-3/4 mb-2"></div>
-                          <div className="mt-auto space-y-3">
-                            <div className="h-px bg-slate-100 dark:bg-slate-800 w-full" />
-                            <div className="h-px bg-slate-100 dark:bg-slate-800 w-3/4" />
-                          </div>
+                        <div className="ml-8 p-5 flex-1 flex flex-col">
+                          <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-20 mb-3"></div>
+                          <div className="h-5 bg-slate-200 dark:bg-slate-700 rounded w-full mb-2"></div>
+                          <div className="h-5 bg-slate-200 dark:bg-slate-700 rounded w-2/3"></div>
                         </div>
                       </div>
                     </motion.div>
@@ -186,16 +175,18 @@ export const AuthenticatedDashboard = ({ language, onStartChat, onLoadSession }:
                   // Empty state
                   <motion.div
                     variants={itemVariants}
-                    className="col-span-3 text-center py-12"
+                    className="col-span-1 md:col-span-2 lg:col-span-3 text-center py-16 bg-white/40 dark:bg-white/5 rounded-2xl border border-dashed border-primary/20"
                   >
-                    <MessageSquare className="h-16 w-16 text-muted-foreground/30 mx-auto mb-4" />
+                    <div className="bg-primary/5 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <MessageSquare className="h-10 w-10 text-primary/40" />
+                    </div>
                     <h4 className="text-xl font-serif font-bold text-muted-foreground mb-2">
-                      {language === 'en' ? 'No conversations yet' : 'अभी तक कोई बातचीत नहीं'}
+                      {language === 'en' ? 'Start Your Legal Research' : 'अपना कानूनी शोध शुरू करें'}
                     </h4>
-                    <p className="text-muted-foreground/70">
+                    <p className="text-muted-foreground/70 max-w-sm mx-auto">
                       {language === 'en' 
-                        ? 'Start a new chat to see your history here' 
-                        : 'अपना इतिहास यहाँ देखने के लिए नई चैट शुरू करें'}
+                        ? 'Ask any legal question to get expert analysis and see your history here.' 
+                        : 'विशेषज्ञ विश्लेषण पाने और अपना इतिहास यहाँ देखने के लिए कोई भी कानूनी प्रश्न पूछें।'}
                     </p>
                   </motion.div>
                 ) : (
@@ -204,23 +195,26 @@ export const AuthenticatedDashboard = ({ language, onStartChat, onLoadSession }:
                     <motion.div
                       key={chat.id}
                       variants={itemVariants}
-                      whileHover={{ y: -8 }}
+                      whileHover={{ y: -5, boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)" }}
                       className="relative group cursor-pointer"
                       onClick={() => onLoadSession?.(chat.id)}
                     >
                       {/* Notebook Style Card */}
-                      <div className="relative bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-lg border border-slate-200 dark:border-slate-800 h-64 flex flex-col">
-                        {/* Spiral - The "Sketch" logic */}
-                        <div className="absolute left-0 top-0 bottom-0 w-8 bg-slate-100 dark:bg-slate-800 flex flex-col items-center justify-around py-4 border-r border-slate-200 dark:border-slate-700">
-                          {[...Array(8)].map((_, i) => (
-                            <div key={i} className="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-600 shadow-inner" />
+                      <div className="relative bg-white dark:bg-[#1a1c23] rounded-xl overflow-hidden shadow-md border border-slate-200 dark:border-slate-800 h-56 flex flex-col transition-all duration-300 group-hover:border-primary/30">
+                        {/* Spiral Bind */}
+                        <div className="absolute left-0 top-0 bottom-0 w-8 bg-[#fdfaf5] dark:bg-[#252833] flex flex-col items-center justify-around py-4 border-r border-slate-200 dark:border-slate-700 z-10">
+                          {[...Array(6)].map((_, i) => (
+                            <div key={i} className="w-2.5 h-2.5 rounded-full bg-primary/10 dark:bg-white/5 shadow-inner border border-primary/20 dark:border-white/10" />
                           ))}
                         </div>
 
+                        {/* Card Background Texture */}
+                        <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/notebook.png')]" />
+
                         {/* Content Area */}
-                        <div className="ml-8 p-6 flex-1 flex flex-col">
-                          <div className="flex items-center gap-2 mb-4">
-                            <span className="text-lg">
+                        <div className="ml-8 p-5 flex-1 flex flex-col relative z-20">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-8 h-8 rounded-lg bg-primary/5 flex items-center justify-center text-sm">
                               {{
                                 "Criminal": "🔴",
                                 "Civil_Family": "👨‍👩‍👧",
@@ -232,28 +226,37 @@ export const AuthenticatedDashboard = ({ language, onStartChat, onLoadSession }:
                                 "Traffic": "🚗",
                                 "all": "⚖️"
                               }[chat.domain || "all"] || "💬"}
-                            </span>
-                            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">{chat.date}</span>
-                            {chat.messageCount && (
-                              <span className="text-[10px] text-muted-foreground/60 ml-auto">
-                                {chat.messageCount} {language === 'en' ? 'msgs' : 'संदेश'}
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-[9px] uppercase tracking-[0.2em] text-primary font-bold opacity-70">
+                                {chat.domain || (language === 'en' ? 'General' : 'सामान्य')}
                               </span>
+                              <span className="text-[10px] text-muted-foreground font-medium">{chat.date}</span>
+                            </div>
+                            {chat.messageCount && (
+                              <div className="ml-auto flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5">
+                                <MessageSquare className="h-3 w-3 text-primary/60" />
+                                <span className="text-[10px] text-muted-foreground font-bold">
+                                  {chat.messageCount}
+                                </span>
+                              </div>
                             )}
                           </div>
-                          <h4 className="text-xl font-serif font-bold text-foreground group-hover:text-primary transition-colors leading-tight line-clamp-3">
+                          
+                          <h4 className="text-lg font-serif font-bold text-foreground group-hover:text-primary transition-colors leading-snug line-clamp-3 mb-4">
                             {chat.title}
                           </h4>
                           
-                          {/* Placeholder Lines */}
-                          <div className="mt-auto space-y-3">
-                            <div className="h-px bg-slate-100 dark:bg-slate-800 w-full" />
-                            <div className="h-px bg-slate-100 dark:bg-slate-800 w-3/4" />
-                            <div className="h-px bg-slate-100 dark:bg-slate-800 w-full" />
+                          {/* Indicator Lines */}
+                          <div className="mt-auto flex gap-1">
+                            <div className="h-1 rounded-full bg-primary/20 group-hover:bg-primary/40 transition-colors flex-1" />
+                            <div className="h-1 rounded-full bg-primary/10 group-hover:bg-primary/20 transition-colors w-12" />
+                            <div className="h-1 rounded-full bg-primary/5 group-hover:bg-primary/10 transition-colors w-8" />
                           </div>
                         </div>
 
-                        {/* Hover Overlay */}
-                        <div className="absolute inset-0 bg-primary/0 group-hover:bg-primary/5 transition-colors pointer-events-none" />
+                        {/* Hover Gradient */}
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary/0 via-primary/0 to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
                       </div>
                     </motion.div>
                   ))
