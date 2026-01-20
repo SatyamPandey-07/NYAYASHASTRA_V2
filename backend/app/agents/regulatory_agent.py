@@ -15,19 +15,16 @@ logger = logging.getLogger(__name__)
 # Regulatory jurisdiction mapping
 JURISDICTION_ACTS = {
     LegalDomain.CRIMINAL: ["IPC", "BNS", "CrPC", "BNSS", "IEA", "BSA"],
-    LegalDomain.CORPORATE: ["Companies Act", "SEBI Act", "IBC", "LLP Act", "Partnership Act"],
+    LegalDomain.CORPORATE: ["Companies Act", "SEBI Act", "IBC", "LLP Act", "Partnership Act", "Income Tax Act", "GST Act"],
     LegalDomain.IT_CYBER: ["IT Act", "DPDP Act", "Information Technology Act"],
-    LegalDomain.LABOUR: ["Industrial Disputes Act", "Factories Act", "PF Act", "ESIC Act", 
-                         "Minimum Wages Act", "Payment of Wages Act", "Labour Codes"],
-    LegalDomain.ENVIRONMENTAL: ["Environment Protection Act", "Wildlife Protection Act",
+    LegalDomain.ENVIRONMENT: ["Environment Protection Act", "Wildlife Protection Act",
                                 "Forest Conservation Act", "Water Act", "Air Act", "NGT Act"],
-    LegalDomain.FAMILY: ["Hindu Marriage Act", "Special Marriage Act", "Hindu Succession Act",
-                         "Indian Divorce Act", "Muslim Personal Law", "Domestic Violence Act"],
+    LegalDomain.CIVIL_FAMILY: ["CPC", "Hindu Marriage Act", "Special Marriage Act", "Hindu Succession Act",
+                         "Indian Divorce Act", "Muslim Personal Law", "Domestic Violence Act", "Contract Act"],
     LegalDomain.PROPERTY: ["Transfer of Property Act", "Registration Act", "Stamp Act",
                            "RERA", "Land Acquisition Act"],
-    LegalDomain.CONSTITUTIONAL: ["Constitution of India", "Representation of People Act"],
-    LegalDomain.FINANCIAL: ["RBI Act", "Banking Regulation Act", "PMLA", "FEMA", "GST Act",
-                            "Income Tax Act", "SARFAESI Act"]
+    LegalDomain.CONSTITUTIONAL: ["Constitution of India", "Representation of People Act", "RTI Act"],
+    LegalDomain.TRAFFIC: ["Motor Vehicles Act", "Road Safety Rules"]
 }
 
 
@@ -161,7 +158,7 @@ class RegulatoryFilterAgent(BaseAgent):
                 "time_limits": ["Limitation periods vary by offence severity"]
             },
             LegalDomain.CORPORATE.value: {
-                "applicable_acts": ["Companies Act, 2013", "SEBI Regulations", "IBC, 2016"],
+                "applicable_acts": ["Companies Act, 2013", "SEBI Regulations", "IBC, 2016", "Income Tax Act"],
                 "key_authorities": ["Registrar of Companies", "SEBI", "NCLT", "NCLAT"],
                 "filing_requirements": ["Annual returns", "Board resolutions", "Statutory registers"],
                 "time_limits": ["Annual return within 60 days of AGM"]
@@ -172,12 +169,18 @@ class RegulatoryFilterAgent(BaseAgent):
                 "filing_requirements": ["Cyber crime complaints online or at cyber cells"],
                 "time_limits": ["Data breach notification within 6 hours to CERT-In"]
             },
-            LegalDomain.FAMILY.value: {
+            LegalDomain.CIVIL_FAMILY.value: {
                 "applicable_acts": ["Hindu Marriage Act", "Special Marriage Act", 
-                                   "Domestic Violence Act", "Hindu Succession Act"],
+                                   "Domestic Violence Act", "Hindu Succession Act", "CPC"],
                 "key_authorities": ["Family Court", "District Court", "High Court"],
-                "filing_requirements": ["Marriage registration", "Divorce petition"],
+                "filing_requirements": ["Marriage registration", "Divorce petition", "Civil Suit"],
                 "time_limits": ["1 year cooling off period for mutual divorce"]
+            },
+            LegalDomain.TRAFFIC.value: {
+                "applicable_acts": ["Motor Vehicles Act", "Road Safety Rules"],
+                "key_authorities": ["Traffic Police", "RTO", "Magistrate Court"],
+                "filing_requirements": ["Challan payment", "Contesting challan in court"],
+                "time_limits": ["Payment within specified days of challan issuance"]
             }
         }
         

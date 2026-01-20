@@ -15,6 +15,9 @@ except ImportError:
 
 try:
     from sentence_transformers import SentenceTransformer
+    from rank_bm25 import BM25Okapi
+    import re
+    import numpy as np
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
@@ -172,11 +175,17 @@ class VectorStoreService:
             return []
         
         # Build where filter
-        where_filter = None
+        filters = []
         if act_codes:
-            where_filter = {"act_code": {"$in": act_codes}}
-        elif domain:
-            where_filter = {"domain": domain}
+            filters.append({"act_code": {"$in": act_codes}})
+        if domain and domain != "all":
+            filters.append({"domain": domain})
+            
+        where_filter = None
+        if len(filters) == 1:
+            where_filter = filters[0]
+        elif len(filters) > 1:
+            where_filter = {"$and": filters}
         
         # Generate query embedding
         query_embedding = self.embed_text(query)
@@ -200,7 +209,44 @@ class VectorStoreService:
                     **metadata
                 })
         
-        return formatted
+        # Apply Re-ranking with BM25
+        if formatted:
+            formatted = self._rerank_with_bm25(query, formatted)
+            
+        return formatted[:limit]
+
+    def _rerank_with_bm25(self, query: str, documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Re-rank retrieved documents using BM25 for keyword relevance."""
+        if not documents:
+            return []
+            
+        # Get contents for BM25
+        contents = [doc.get("content", "") for doc in documents]
+        
+        # Tokenize
+        def tokenize(text):
+            return re.sub(r'[^\w\s]', ' ', text.lower()).split()
+            
+        tokenized_query = tokenize(query)
+        tokenized_corpus = [tokenize(doc) for doc in contents]
+        
+        # Calculate BM25 scores
+        bm25 = BM25Okapi(tokenized_corpus)
+        bm25_scores = bm25.get_scores(tokenized_query)
+        
+        # Normalize BM25 scores
+        if max(bm25_scores) > 0:
+            bm25_scores = bm25_scores / max(bm25_scores)
+            
+        # Combine with Vector score (1 - distance)
+        for i, doc in enumerate(documents):
+            vector_score = doc.get("relevance_score", 1 - doc.get("distance", 0))
+            # Hybrid score: 60% BM25, 40% Vector (keywords are king for statutes)
+            doc["hybrid_score"] = (0.6 * bm25_scores[i]) + (0.4 * vector_score)
+            
+        # Sort by hybrid score
+        documents.sort(key=lambda x: x.get("hybrid_score", 0), reverse=True)
+        return documents
     
     async def search_cases(self, query: str, domain: Optional[str] = None,
                           court: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
@@ -234,7 +280,11 @@ class VectorStoreService:
                     **metadata
                 })
         
-        return formatted
+        # Apply Re-ranking with BM25
+        if formatted:
+            formatted = self._rerank_with_bm25(query, formatted)
+            
+        return formatted[:limit]
     
     async def add_documents(self, documents: List[Dict[str, Any]]):
         """Add PDF documents to vector store with domain metadata.
@@ -336,8 +386,12 @@ class VectorStoreService:
                     **metadata
                 })
         
+        # Apply Re-ranking with BM25
+        if formatted:
+            formatted = self._rerank_with_bm25(query, formatted)
+            
         logger.info(f"Document search returned {len(formatted)} results (domain filter: {filter_domain})")
-        return formatted
+        return formatted[:limit]
 
 
 # Singleton instance

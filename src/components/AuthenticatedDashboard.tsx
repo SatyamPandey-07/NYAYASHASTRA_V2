@@ -220,7 +220,19 @@ export const AuthenticatedDashboard = ({ language, onStartChat, onLoadSession }:
                         {/* Content Area */}
                         <div className="ml-8 p-6 flex-1 flex flex-col">
                           <div className="flex items-center gap-2 mb-4">
-                            <MessageSquare className="h-4 w-4 text-primary" />
+                            <span className="text-lg">
+                              {{
+                                "Criminal": "🔴",
+                                "Civil_Family": "👨‍👩‍👧",
+                                "Corporate": "🏢",
+                                "Consitutional": "📕",
+                                "IT_Cyber": "💻",
+                                "Environment": "🌳",
+                                "Property": "🏠",
+                                "Traffic": "🚗",
+                                "all": "⚖️"
+                              }[chat.domain || "all"] || "💬"}
+                            </span>
                             <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">{chat.date}</span>
                             {chat.messageCount && (
                               <span className="text-[10px] text-muted-foreground/60 ml-auto">

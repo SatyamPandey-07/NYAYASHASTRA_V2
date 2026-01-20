@@ -61,6 +61,56 @@ class LLMService:
             return await self._openai_generate(prompt, max_tokens, temperature)
         else:
             return self._generate_fallback_response(prompt)
+
+    async def generate_chat(self, messages: List[Dict[str, str]], 
+                           max_tokens: int = 2000, 
+                           temperature: float = 0.7) -> str:
+        """Generate response for a list of chat messages."""
+        if self.provider == "groq":
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        f"{GROQ_API_BASE}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.groq_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": self.groq_model,
+                            "messages": messages,
+                            "max_tokens": max_tokens,
+                            "temperature": temperature
+                        }
+                    )
+                    if response.status_code == 200:
+                        return response.json()["choices"][0]["message"]["content"]
+            except Exception as e:
+                logger.error(f"Groq generate_chat failed: {e}")
+        
+        elif self.provider == "openai":
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.openai_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": self.openai_model,
+                            "messages": messages,
+                            "max_tokens": max_tokens,
+                            "temperature": temperature
+                        }
+                    )
+                    if response.status_code == 200:
+                        return response.json()["choices"][0]["message"]["content"]
+            except Exception as e:
+                logger.error(f"OpenAI generate_chat failed: {e}")
+
+        # Fallback - use the last user message
+        user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        return await self.generate(user_msg, max_tokens, temperature)
     
     async def _groq_generate(self, prompt: str, max_tokens: int, 
                              temperature: float) -> str:

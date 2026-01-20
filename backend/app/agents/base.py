@@ -33,6 +33,10 @@ class AgentContext:
         self.keywords: List[str] = []
         self.entities: List[Dict[str, Any]] = []
         
+        # Relevance guardrails
+        self.is_relevant: bool = True
+        self.rejection_message: Optional[str] = None
+        
         # Retrieved data
         self.statutes: List[Dict[str, Any]] = []
         self.case_laws: List[Dict[str, Any]] = []

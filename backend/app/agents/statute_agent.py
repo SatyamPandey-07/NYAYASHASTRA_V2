@@ -62,6 +62,7 @@ class StatuteRetrievalAgent(BaseAgent):
             
             # Get domain from context (specified or detected)
             domain_filter = context.specified_domain if context.specified_domain and context.specified_domain != "all" else None
+            logger.info(f"Retrieving statutes for domain: {domain_filter}")
             if not domain_filter and context.detected_domain:
                 domain_filter = context.detected_domain
             

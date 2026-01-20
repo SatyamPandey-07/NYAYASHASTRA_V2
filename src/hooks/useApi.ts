@@ -168,6 +168,7 @@ export function useChat(options: UseChatOptions = {}) {
             language,
             sessionId || undefined,
             token,
+            domain,
           );
 
           console.log("Non-streaming API response:", response);
@@ -231,6 +232,7 @@ export function useChat(options: UseChatOptions = {}) {
         const data = await api.getSessionMessages(sId, token);
         setMessages(data.messages);
         setSessionId(data.sessionId);
+        return data;
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Failed to load session";

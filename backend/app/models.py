@@ -176,6 +176,7 @@ class ChatSession(Base):
     
     # Session metadata
     language = Column(String(10), default="en")
+    domain = Column(String(50), default="all")
     started_at = Column(DateTime, server_default=func.now())
     last_activity = Column(DateTime, onupdate=func.now())
     

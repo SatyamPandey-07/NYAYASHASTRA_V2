@@ -444,6 +444,7 @@ export interface ChatSession {
   date: string;
   messageCount: number;
   language?: string;
+  domain?: string;
 }
 
 export interface ChatHistoryResponse {
@@ -486,7 +487,7 @@ export async function getChatHistory(
 export async function getSessionMessages(
   sessionId: string,
   token?: string,
-): Promise<{ messages: ChatMessage[]; sessionId: string }> {
+): Promise<{ messages: ChatMessage[]; sessionId: string; domain: string }> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -512,6 +513,7 @@ export async function getSessionMessages(
   // Transform messages
   return {
     sessionId: data.sessionId,
+    domain: data.domain || "all",
     messages: (data.messages || []).map((msg: any) => ({
       id: msg.id,
       role: msg.role,

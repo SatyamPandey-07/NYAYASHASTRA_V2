@@ -243,9 +243,14 @@ const Index = () => {
                   setViewState("domain-select");
                 }
               }}
-              onLoadSession={(sessionId) => {
+              onLoadSession={async (sessionId) => {
                 setViewState("chat");
-                if (useBackendAPI) loadApiSession(sessionId);
+                if (useBackendAPI) {
+                  const data = await loadApiSession(sessionId);
+                  if (data?.domain) {
+                    setSelectedDomain(data.domain);
+                  }
+                }
               }}
             />
           )}
@@ -264,12 +269,20 @@ const Index = () => {
           {viewState === "chat" && (
             <ChatInterface
               messages={formattedMessages}
-              onSendMessage={(content) => handleSendMessage(content, selectedDomain)}
+              onSendMessage={(content, domain) => {
+                if (domain) setSelectedDomain(domain);
+                handleSendMessage(content, domain || selectedDomain);
+              }}
               isProcessing={processing}
               language={language}
               selectedDomain={selectedDomain}
-              onLoadSession={(sessionId) => {
-                if (useBackendAPI) loadApiSession(sessionId);
+              onLoadSession={async (sessionId) => {
+                if (useBackendAPI) {
+                  const data = await loadApiSession(sessionId);
+                  if (data?.domain) {
+                    setSelectedDomain(data.domain);
+                  }
+                }
               }}
               onNewChat={() => {
                 if (useBackendAPI) clearApiMessages();

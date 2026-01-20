@@ -13,55 +13,7 @@ from app.schemas import AgentType, LegalDomain
 logger = logging.getLogger(__name__)
 
 
-# Legal domain keywords for classification
-DOMAIN_KEYWORDS = {
-    LegalDomain.CRIMINAL: {
-        "en": ["murder", "theft", "robbery", "assault", "rape", "kidnapping", "criminal", 
-               "ipc", "bns", "fir", "arrest", "bail", "police", "crime", "offense", "prison",
-               "punishment", "death penalty", "life imprisonment", "cognizable", "bailable",
-               "302", "307", "376", "420", "498a", "304b", "306", "323", "354", "506"],
-        "hi": ["हत्या", "चोरी", "डकैती", "हमला", "बलात्कार", "अपहरण", "आपराधिक",
-               "एफआईआर", "गिरफ्तारी", "जमानत", "पुलिस", "अपराध", "सजा", "कारावास"]
-    },
-    LegalDomain.CORPORATE: {
-        "en": ["company", "corporate", "director", "shareholder", "merger", "acquisition",
-               "sebi", "rbi", "insolvency", "bankruptcy", "contract", "agreement", "mca",
-               "companies act", "partnership", "llp", "incorporation"],
-        "hi": ["कंपनी", "निदेशक", "शेयरधारक", "विलय", "अधिग्रहण", "दिवालियापन", "अनुबंध"]
-    },
-    LegalDomain.IT_CYBER: {
-        "en": ["cyber", "it act", "hacking", "data", "privacy", "online", "internet",
-               "phishing", "identity theft", "computer", "digital", "electronic", "66a",
-               "information technology", "cybercrime", "data protection", "gdpr"],
-        "hi": ["साइबर", "हैकिंग", "डेटा", "गोपनीयता", "ऑनलाइन", "इंटरनेट", "कंप्यूटर"]
-    },
-    LegalDomain.LABOUR: {
-        "en": ["labour", "labor", "employment", "worker", "wage", "factory", "industrial",
-               "trade union", "strike", "termination", "gratuity", "pf", "esic", "minimum wage"],
-        "hi": ["श्रम", "रोजगार", "मजदूर", "वेतन", "कारखाना", "औद्योगिक", "ट्रेड यूनियन"]
-    },
-    LegalDomain.ENVIRONMENTAL: {
-        "en": ["environment", "pollution", "ngt", "forest", "wildlife", "air", "water",
-               "hazardous", "waste", "eia", "clearance", "green tribunal"],
-        "hi": ["पर्यावरण", "प्रदूषण", "वन", "वन्यजीव", "हवा", "पानी", "खतरनाक"]
-    },
-    LegalDomain.FAMILY: {
-        "en": ["marriage", "divorce", "custody", "maintenance", "alimony", "adoption",
-               "domestic violence", "dowry", "hindu marriage act", "special marriage",
-               "498a", "304b", "child", "matrimonial"],
-        "hi": ["विवाह", "तलाक", "हिरासत", "भरण-पोषण", "गोद", "घरेलू हिंसा", "दहेज"]
-    },
-    LegalDomain.PROPERTY: {
-        "en": ["property", "land", "real estate", "registration", "transfer", "sale deed",
-               "mutation", "encumbrance", "lease", "rent", "tenant", "landlord", "tpa"],
-        "hi": ["संपत्ति", "भूमि", "रियल एस्टेट", "पंजीकरण", "हस्तांतरण", "किराया", "किरायेदार"]
-    },
-    LegalDomain.CONSTITUTIONAL: {
-        "en": ["constitution", "fundamental rights", "directive principles", "article",
-               "writ", "habeas corpus", "mandamus", "certiorari", "pil", "supreme court"],
-        "hi": ["संविधान", "मौलिक अधिकार", "निदेशक सिद्धांत", "अनुच्छेद", "रिट", "जनहित याचिका"]
-    }
-}
+# Legal domain keywords moved to bm25_service.py corpus
 
 # IPC/BNS section patterns
 SECTION_PATTERN = re.compile(r'(?:section|sec|धारा|§)\s*(\d+[a-zA-Z]?)', re.IGNORECASE)
@@ -79,6 +31,12 @@ class QueryUnderstandingAgent(BaseAgent):
         self.name_hi = "प्रश्न समझ"
         self.description = "Analyzes queries for language, domain, and intent"
         self.color = "#00d4ff"
+        self.domain_classifier = None # Async init
+
+    async def _init_classifier(self):
+        if not self.domain_classifier:
+            from app.services.bm25_service import get_domain_classifier
+            self.domain_classifier = await get_domain_classifier()
     
     async def process(self, context: AgentContext) -> AgentContext:
         """Process the query to understand intent and context."""
@@ -96,12 +54,34 @@ class QueryUnderstandingAgent(BaseAgent):
             logger.info(f"Extracted sections: {sections}")
         
         # 3. Detect legal domain
+        await self._init_classifier()
+        predicted_domain, confidence, all_scores = await self.domain_classifier.classify(query)
+        
         if context.specified_domain and context.specified_domain != "all":
             context.detected_domain = context.specified_domain
             logger.info(f"Using specified domain: {context.detected_domain}")
+            
+            # GUARDRAIL: Verify if query is relevant to the specified domain
+            # Use 'Sticky Domain' logic: allow if selected is match, close, or strong.
+            selected_score = all_scores.get(context.specified_domain, 0)
+            top_score = confidence
+            
+            is_match = (predicted_domain == context.specified_domain)
+            is_close = (selected_score > (top_score * 0.5) and selected_score > 0.1)
+            is_strong = (selected_score > 0.2)
+            
+            if not (is_match or is_close or is_strong):
+                context.is_relevant = False
+                context.rejection_message = (
+                    f"⚠️ This query appears to be related to **{predicted_domain}** law, "
+                    f"not **{context.specified_domain}** law. "
+                    f"To ensure legal accuracy, I only answer {context.specified_domain} queries in this mode. "
+                    f"Please switch to the **{predicted_domain}** domain for a detailed response."
+                )
+                logger.warning(f"Domain guardrail triggered: query '{query}' is {predicted_domain}, not {context.specified_domain} (scores: top={top_score:.2f}, selected={selected_score:.2f})")
         else:
-            context.detected_domain = self._detect_domain(query)
-            logger.info(f"Automatically detected domain: {context.detected_domain}")
+            context.detected_domain = predicted_domain
+            logger.info(f"Automatically detected domain: {context.detected_domain} (conf: {confidence:.2f})")
         
         # 4. Detect if IPC or BNS specific
         is_ipc = bool(IPC_PATTERN.search(context.query))
@@ -115,12 +95,12 @@ class QueryUnderstandingAgent(BaseAgent):
         # Add acts based on domain if none specified
         if not context.applicable_acts and context.detected_domain:
             from app.agents.regulatory_agent import JURISDICTION_ACTS
-            from app.schemas import LegalDomain
             try:
+                # Convert string to LegalDomain enum to match keys in JURISDICTION_ACTS
                 domain_enum = LegalDomain(context.detected_domain)
                 context.applicable_acts.extend(JURISDICTION_ACTS.get(domain_enum, []))
-            except ValueError:
-                pass
+            except Exception as e:
+                logger.warning(f"Error getting acts for domain {context.detected_domain}: {e}")
         
         # If still no acts and sections found, default to both criminal codes
         if not context.applicable_acts and sections:
@@ -197,25 +177,6 @@ class QueryUnderstandingAgent(BaseAgent):
                 matches.append(num)
         
         return list(set(matches))
-    
-    def _detect_domain(self, query: str) -> str:
-        """Detect the legal domain of the query."""
-        domain_scores = {}
-        
-        for domain, keywords in DOMAIN_KEYWORDS.items():
-            score = 0
-            for lang_keywords in keywords.values():
-                for keyword in lang_keywords:
-                    if keyword.lower() in query:
-                        score += 1
-            domain_scores[domain] = score
-        
-        if domain_scores:
-            best_domain = max(domain_scores, key=domain_scores.get)
-            if domain_scores[best_domain] > 0:
-                return best_domain.value
-        
-        return LegalDomain.CRIMINAL.value  # Default to criminal law
     
     def _extract_keywords(self, text: str) -> List[str]:
         """Extract important keywords from query."""

@@ -34,17 +34,16 @@ class AgentStatus(str, Enum):
 
 
 class LegalDomain(str, Enum):
-    CRIMINAL = "criminal"
-    CIVIL = "civil"
-    CORPORATE = "corporate"
-    IT_CYBER = "it_cyber"
-    ENVIRONMENTAL = "environmental"
-    LABOUR = "labour"
-    FINANCIAL = "financial"
-    CONSTITUTIONAL = "constitutional"
-    FAMILY = "family"
-    PROPERTY = "property"
-    OTHER = "other"
+    CRIMINAL = "Criminal"
+    CIVIL_FAMILY = "Civil_Family"
+    CORPORATE = "Corporate"
+    IT_CYBER = "IT_Cyber"
+    ENVIRONMENT = "Environment"
+    CONSTITUTIONAL = "Consitutional" # Note: Folder name has a typo 'Consitutional'
+    PROPERTY = "Property"
+    TRAFFIC = "Traffic"
+    OTHER = "Other"
+    ALL = "all"
 
 
 # ============== Chat Schemas ==============

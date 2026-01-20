@@ -25,7 +25,8 @@ class ChatService:
         db: Session, 
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
-        language: str = "en"
+        language: str = "en",
+        domain: Optional[str] = "all"
     ) -> "ChatSession":
         """Get existing session or create a new one."""
         from app.models import ChatSession
@@ -37,8 +38,10 @@ class ChatService:
             ).first()
             
             if session:
-                # Update last activity
+                # Update last activity and domain if it changed from 'all'
                 session.last_activity = datetime.now()
+                if domain and domain != "all" and session.domain == "all":
+                    session.domain = domain
                 db.commit()
                 return session
         
@@ -48,6 +51,7 @@ class ChatService:
             session_id=new_session_id,
             user_id=user_id,
             language=language,
+            domain=domain or "all",
             started_at=datetime.now(),
             last_activity=datetime.now()
         )
@@ -55,7 +59,7 @@ class ChatService:
         db.commit()
         db.refresh(session)
         
-        logger.info(f"Created new chat session: {new_session_id}")
+        logger.info(f"Created new chat session: {new_session_id} in domain: {domain}")
         return session
     
     def save_message(
@@ -173,7 +177,8 @@ class ChatService:
                 "title": title,
                 "date": date_str,
                 "messageCount": msg_count,
-                "language": session.language or "en"
+                "language": session.language or "en",
+                "domain": session.domain or "all"
             })
         
         return result

@@ -57,106 +57,82 @@ class ResponseSynthesisAgent(BaseAgent):
         return context
     
     async def _generate_llm_response(self, context: AgentContext) -> Dict[str, str]:
-        """Generate response using LLM in the detected language (supports multiple languages)."""
+        """Generate response using LLM and SystemPromptBuilder with strict domain guardrails."""
         try:
-            # Build context for LLM
-            llm_context = self._build_llm_context(context)
+            from app.services.system_prompt import get_system_prompt
+            from app.services.retriever_service import QueryClassifier
             
-            # Use detected_language (auto-detected from user input) for primary response
-            response_language = context.detected_language or context.language or "en"
+            # 1. Use centralized relevance guardrail from context (set by Query Agent with BM25)
+            is_relevant = context.is_relevant
+            rejection_message = context.rejection_message or ""
             
-            # Language names for better prompts
-            language_names = {
-                "en": "English", "hi": "Hindi", "ta": "Tamil", "te": "Telugu",
-                "bn": "Bengali", "gu": "Gujarati", "kn": "Kannada", "ml": "Malayalam",
-                "pa": "Punjabi", "or": "Odia", "as": "Assamese", "ar": "Arabic",
-                "ur": "Urdu", "zh": "Chinese", "ja": "Japanese", "ko": "Korean",
-                "th": "Thai", "ru": "Russian", "es": "Spanish", "fr": "French", "de": "German"
-            }
+            # If still considered relevant but a domain mismatch was flagged by keywords/fallback
+            # This is a double check to ensure absolute reliability
+            if is_relevant and context.specified_domain and context.specified_domain != "all":
+                from app.services.retriever_service import QueryClassifier
+                if not QueryClassifier.is_query_relevant_to_domain(context.query, context.specified_domain):
+                     # Final LLM verify if keywords also fail
+                     is_relevant = await self._verify_relevance_with_llm(context.query, context.specified_domain)
+                     if not is_relevant:
+                         rejection_message = f"⚠️ I couldn't find a strong connection between your query and **{context.specified_domain}** law."
             
-            lang_name = language_names.get(response_language, "English")
+            # 2. Build the System Prompt with Context
+            docs = []
+            for s in context.statutes:
+                docs.append({
+                    "content": s.get("content_en", ""),
+                    "filename": s.get("filename") or s.get("act_code") or "Statute",
+                    "category": s.get("domain", "")
+                })
             
-            if response_language == "hi":
-                # Hindi prompt
-                prompt = f"""आप NyayGuru AI Pro हैं, भारतीय कानून के विशेषज्ञ कानूनी सहायक।
-उपयोगकर्ता के प्रश्न का व्यापक, सटीक और पेशेवर उत्तर हिंदी में दें।
-
-उपयोगकर्ता का प्रश्न: {context.query}
-पहचाना गया क्षेत्र: {context.detected_domain}
-
-{llm_context}
-
-दिशानिर्देश:
-1. विशिष्ट धाराओं और मामलों का उल्लेख करें
-2. कानूनी सटीकता बनाए रखते हुए सरल शब्दों में समझाएं
-3. यदि प्रासंगिक हो तो IPC और BNS के बीच मुख्य अंतर बताएं
-4. महत्वपूर्ण सिद्धांत स्थापित करने वाले ऐतिहासिक मामलों का उल्लेख करें
-5. जहां लागू हो वहां व्यावहारिक मार्गदर्शन शामिल करें
-6. पेशेवर कानूनी टोन बनाए रखें
-7. अस्वीकरण के साथ समाप्त करें
-
-हिंदी में उत्तर दें:"""
+            system_prompt = get_system_prompt(
+                user_query=context.query,
+                documents=docs,
+                sql_results=context.ipc_bns_mappings,
+                fallback_message=rejection_message,
+                selected_category=context.specified_domain
+            )
+            
+            # 3. Handle strict rejection
+            if not is_relevant and rejection_message:
+                logger.warning(f"Domain mismatch detected. Query: {context.query}, Domain: {context.specified_domain}. Rejecting.")
                 
-                primary_response = await self.llm_service.generate(prompt)
-                # Generate English version for reference
-                english_prompt = f"Translate this Hindi legal response to English, maintaining legal terminology accuracy:\n\n{primary_response}"
-                secondary_response = await self.llm_service.generate(english_prompt)
+                # If Hindi/Hinglish detected, translate rejection
+                if context.detected_language == "hi":
+                    rejection_message_hi = await self._translate_to_hindi(rejection_message)
+                else:
+                    rejection_message_hi = rejection_message # Fallback
                 
-            elif response_language != "en":
-                # Any other language - generate in that language
-                prompt = f"""You are NyayGuru AI Pro, an expert legal assistant for Indian law.
-Generate a comprehensive, accurate, and professional response to the user's query.
-IMPORTANT: Respond ONLY in {lang_name} language. The user asked in {lang_name}, so respond in {lang_name}.
+                return {
+                    "en": rejection_message,
+                    "hi": rejection_message_hi,
+                    "primary": rejection_message_hi if context.detected_language == "hi" else rejection_message,
+                    "detected_language": context.detected_language or "en"
+                }
 
-User Query: {context.query}
-Detected Domain: {context.detected_domain}
-
-{llm_context}
-
-Guidelines:
-1. Be accurate and cite specific sections and cases
-2. Explain in simple terms while maintaining legal precision
-3. Highlight key differences between IPC and BNS if relevant
-4. Mention landmark cases that establish important principles
-5. Include practical guidance where applicable
-6. Maintain a professional legal tone
-7. End with a disclaimer in {lang_name}
-
-Generate your complete response in {lang_name}:"""
-
-                primary_response = await self.llm_service.generate(prompt)
-                # Generate English version for reference
-                english_prompt = f"Translate this {lang_name} legal response to English, maintaining legal terminology accuracy:\n\n{primary_response}"
-                secondary_response = await self.llm_service.generate(english_prompt)
+            # 4. Generate response
+            response_language = context.detected_language or "en"
+            
+            # We use a single prompt now that handles language mirroring
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": context.query}
+            ]
+            
+            primary_response = await self.llm_service.generate_chat(messages)
+            
+            # Generate Hindi translation if not already in Hindi
+            secondary_response = ""
+            if response_language != "hi":
+                translate_prompt = f"Translate this legal response to Hindi, maintaining professional legal terminology:\n\n{primary_response}"
+                secondary_response = await self.llm_service.generate(translate_prompt)
             else:
-                # English prompt (default)
-                prompt = f"""You are NyayGuru AI Pro, an expert legal assistant for Indian law. 
-Generate a comprehensive, accurate, and professional response to the user's query.
-
-User Query: {context.query}
-Detected Domain: {context.detected_domain}
-
-{llm_context}
-
-Guidelines:
-1. Be accurate and cite specific sections and cases
-2. Explain in simple terms while maintaining legal precision
-3. Highlight key differences between IPC and BNS if relevant
-4. Mention landmark cases that establish important principles
-5. Include practical guidance where applicable
-6. Maintain a professional legal tone
-7. End with a disclaimer
-
-Generate response in English:"""
-
-                primary_response = await self.llm_service.generate(prompt)
-                secondary_response = primary_response  # Same for English
+                secondary_response = primary_response
             
-            # Return both versions - primary is in detected language
             return {
-                "en": secondary_response + DISCLAIMER_EN if response_language != "en" else primary_response + DISCLAIMER_EN,
-                "hi": primary_response + DISCLAIMER_HI if response_language == "hi" else "",
-                "primary": primary_response,  # Primary response in detected language
+                "en": primary_response if response_language == "en" else await self.llm_service.generate(f"Translate this to English:\n\n{primary_response}"),
+                "hi": secondary_response,
+                "primary": primary_response,
                 "detected_language": response_language
             }
         except Exception as e:
@@ -325,6 +301,34 @@ Generate response in English:"""
             "hi": response_hi
         }
     
+    async def _verify_relevance_with_llm(self, query: str, domain: str) -> bool:
+        """Reliable Method: Verify query relevance to domain using LLM."""
+        if not self.llm_service:
+            return False
+            
+        prompt = f"""Task: Determine if the following legal query is relevant to the "{domain}" domain of Indian law.
+Relevant topics for "{domain}" include:
+- Traffic: Vehicle rules, accidents, fines, licenses, road safety.
+- Criminal: Murder, theft, crimes, FIR, bail, prison.
+- IT_Cyber: Hacking, data privacy, online fraud.
+- Civil_Family: Divorce, marriage, inheritance, property disputes.
+- Corporate: Companies, tax, business contracts.
+- Constitutional: Rights, Supreme Court, Articles.
+
+Query: "{query}"
+
+Is this query relevant to the "{domain}" domain? 
+Answer with ONLY "YES" or "NO". Keep it simple.
+"""
+        try:
+            response = await self.llm_service.generate(prompt, max_tokens=10, temperature=0.1)
+            result = response.strip().upper()
+            logger.info(f"Reliable LLM Check for '{domain}': {result}")
+            return "YES" in result
+        except Exception as e:
+            logger.error(f"Reliable check failed: {e}")
+            return False
+
     async def _translate_to_hindi(self, text: str) -> str:
         """Translate text to Hindi using LLM or fallback."""
         if self.llm_service:

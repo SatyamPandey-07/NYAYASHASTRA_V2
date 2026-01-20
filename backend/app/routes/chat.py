@@ -51,7 +51,8 @@ async def process_chat_message(
             db=db,
             session_id=request.session_id,
             user_id=user_id,
-            language=request.language.value
+            language=request.language.value,
+            domain=request.domain
         )
         
         # Save user message to database
@@ -131,7 +132,8 @@ async def process_chat_message_stream(
         db=db,
         session_id=request.session_id,
         user_id=user_id,
-        language=request.language.value
+        language=request.language.value,
+        domain=request.domain
     )
     
     # Save user message
@@ -337,7 +339,8 @@ def get_chat_history(
                 "title": title,
                 "date": date_str,
                 "messageCount": message_count,
-                "language": session.language or "en"
+                "language": session.language or "en",
+                "domain": session.domain or "all"
             })
         
         return {"sessions": result}
@@ -388,7 +391,11 @@ def get_session_messages(
                 "timestamp": msg.created_at.isoformat() if msg.created_at else None
             })
         
-        return {"messages": result, "sessionId": session_id}
+        return {
+            "messages": result, 
+            "sessionId": session_id,
+            "domain": session.domain or "all"
+        }
         
     except HTTPException:
         raise

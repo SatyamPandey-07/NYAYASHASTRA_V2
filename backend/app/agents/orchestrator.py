@@ -100,6 +100,11 @@ class AgentOrchestrator:
         
         # Execute agents in sequence
         for agent in self.agents:
+            # If a domain mismatch was detected, skip all agents except the response agent
+            if not context.is_relevant and agent.agent_type != AgentType.RESPONSE:
+                logger.info(f"Skipping agent {agent.name} due to domain mismatch/rejection")
+                continue
+                
             try:
                 context = await agent.execute(context)
                 logger.info(f"Agent {agent.name} completed")
@@ -150,6 +155,11 @@ class AgentOrchestrator:
                 }
             )
             
+            # If a domain mismatch was detected, skip all agents except the response agent
+            if not context.is_relevant and agent.agent_type != AgentType.RESPONSE:
+                logger.info(f"Skipping agent {agent.name} during streaming due to domain mismatch")
+                continue
+
             try:
                 context = await agent.execute(context)
                 

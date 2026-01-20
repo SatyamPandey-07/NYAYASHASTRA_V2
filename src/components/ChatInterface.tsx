@@ -29,53 +29,56 @@ import { useChatHistory } from "@/hooks/useApi";
 import { CitationViewer } from "./CitationViewer";
 import { ConsultLawyerButton } from "./ConsultLawyerButton";
 
-// Domain options for regulatory filtering
+// Domain options for regulatory filtering - matches data folder structure
 const LEGAL_DOMAINS = [
   { id: "all", label: "All Domains", labelHi: "सभी डोमेन", icon: "⚖️" },
   {
-    id: "criminal",
+    id: "Criminal",
     label: "Criminal Law",
     labelHi: "आपराधिक कानून",
     icon: "🔴",
   },
-  { id: "civil", label: "Civil Law", labelHi: "नागरिक कानून", icon: "📜" },
   {
-    id: "corporate",
-    label: "Corporate Law",
-    labelHi: "कॉर्पोरेट कानून",
+    id: "Civil_Family",
+    label: "Civil & Family Law",
+    labelHi: "सिविल और पारिवारिक कानून",
+    icon: "👨‍👩‍👧",
+  },
+  {
+    id: "Corporate",
+    label: "Corporate & Tax Law",
+    labelHi: "कॉर्पोरेट और कर कानून",
     icon: "🏢",
   },
   {
-    id: "it_cyber",
+    id: "Consitutional",
+    label: "Constitutional Law",
+    labelHi: "संवैधानिक कानून",
+    icon: "📕",
+  },
+  {
+    id: "IT_Cyber",
     label: "IT & Cyber Law",
     labelHi: "IT और साइबर कानून",
     icon: "💻",
   },
   {
-    id: "financial",
-    label: "Financial Law",
-    labelHi: "वित्तीय कानून",
-    icon: "💰",
-  },
-  { id: "labour", label: "Labour Law", labelHi: "श्रम कानून", icon: "👷" },
-  {
-    id: "environmental",
+    id: "Environment",
     label: "Environmental Law",
     labelHi: "पर्यावरण कानून",
     icon: "🌳",
   },
-  { id: "family", label: "Family Law", labelHi: "पारिवारिक कानून", icon: "👨‍👩‍👧" },
   {
-    id: "property",
+    id: "Property",
     label: "Property Law",
     labelHi: "संपत्ति कानून",
     icon: "🏠",
   },
   {
-    id: "constitutional",
-    label: "Constitutional Law",
-    labelHi: "संवैधानिक कानून",
-    icon: "📕",
+    id: "Traffic",
+    label: "Traffic Law",
+    labelHi: "यातायात कानून",
+    icon: "🚗",
   },
 ];
 
@@ -188,11 +191,16 @@ export const ChatInterface = ({
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDocument[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const domainDropdownRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch real chat history from backend
+  // Sync selected domain with props
+  useEffect(() => {
+    if (propDomain && propDomain !== selectedDomain) {
+      setSelectedDomain(propDomain);
+    }
+  }, [propDomain]);
   const {
     sessions: chatHistory,
     loading: historyLoading,
@@ -470,8 +478,8 @@ export const ChatInterface = ({
                         onClick={() => onLoadSession?.(session.id)}
                       >
                         <div className="flex items-start gap-3">
-                          <div className="p-2 rounded-lg bg-primary/10 mt-0.5">
-                            <MessageSquare className="h-4 w-4 text-primary" />
+                          <div className="p-2 rounded-lg bg-primary/10 mt-0.5 w-9 h-9 flex items-center justify-center text-sm">
+                            {LEGAL_DOMAINS.find(d => d.id === session.domain)?.icon || "💬"}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm text-foreground truncate group-hover:text-primary transition-colors">

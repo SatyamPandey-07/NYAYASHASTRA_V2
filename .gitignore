@@ -39,8 +39,8 @@ yarn-error.log*
 *.swo
 
 # Vector DB
-chroma_db/
-backend/chroma_db/
+# chroma_db/
+# backend/chroma_db/
 
 # System
 .DS_Store
