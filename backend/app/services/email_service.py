@@ -202,7 +202,7 @@ def create_booking_email_text(
     return text
 
 
-async def send_booking_confirmation_email(
+def send_booking_confirmation_email(
     user_email: str,
     booking_id: str,
     lawyer_name: str,
@@ -215,7 +215,7 @@ async def send_booking_confirmation_email(
     message: Optional[str] = None
 ) -> bool:
     """
-    Send booking confirmation email asynchronously.
+    Send booking confirmation email (synchronous for background tasks).
     
     Returns True if email was sent successfully, False otherwise.
     """
@@ -251,21 +251,30 @@ async def send_booking_confirmation_email(
         msg.attach(part1)
         msg.attach(part2)
         
-        # Send email in a thread to avoid blocking
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _send_email, msg, user_email)
+        # Send email synchronously (called from background task)
+        _send_email(msg, user_email)
         
         logger.info(f"Booking confirmation email sent to {user_email}")
         return True
         
     except Exception as e:
         logger.error(f"Failed to send email to {user_email}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
 def _send_email(msg: MIMEMultipart, recipient: str):
-    """Synchronous email sending function to be run in executor."""
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.starttls()
-        server.login(SMTP_USERNAME, SMTP_PASSWORD)
-        server.sendmail(SMTP_FROM_EMAIL, recipient, msg.as_string())
+    """Synchronous email sending function."""
+    try:
+        logger.info(f"Connecting to SMTP server {SMTP_HOST}:{SMTP_PORT}...")
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            logger.info("Starting TLS...")
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            logger.info(f"Logged in as {SMTP_USERNAME}")
+            server.sendmail(SMTP_FROM_EMAIL, recipient, msg.as_string())
+            logger.info(f"Email sent successfully to {recipient}")
+    except Exception as e:
+        logger.error(f"SMTP Error: {str(e)}")
+        raise
