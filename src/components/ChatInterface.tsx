@@ -116,6 +116,7 @@ interface ChatInterfaceProps {
   onSendMessage: (message: string, domain?: string) => void;
   isProcessing: boolean;
   language: "en" | "hi";
+  selectedDomain?: string;
   onLoadSession?: (sessionId: string) => void;
   onNewChat?: () => void;
 }
@@ -169,6 +170,7 @@ export const ChatInterface = ({
   onSendMessage,
   isProcessing,
   language,
+  selectedDomain: propDomain,
   onLoadSession,
   onNewChat,
 }: ChatInterfaceProps) => {
@@ -177,7 +179,7 @@ export const ChatInterface = ({
   const [showHistory, setShowHistory] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
-  const [selectedDomain, setSelectedDomain] = useState("all");
+  const [selectedDomain, setSelectedDomain] = useState(propDomain || "all");
   const [showDomainDropdown, setShowDomainDropdown] = useState(false);
   const [showCitationViewer, setShowCitationViewer] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(

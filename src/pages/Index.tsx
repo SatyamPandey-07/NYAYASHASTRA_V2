@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Header } from "@/components/Header";
 import { ChatInterface } from "@/components/ChatInterface";
 import { AuthenticatedDashboard } from "@/components/AuthenticatedDashboard";
+import { DomainSelection } from "@/components/DomainSelection";
 import { useChat } from "@/hooks/useApi";
 
 interface Message {
@@ -27,7 +28,8 @@ interface Message {
 }
 
 const Index = () => {
-  const [isNewChatStarted, setIsNewChatStarted] = useState(false);
+  const [viewState, setViewState] = useState<"dashboard" | "domain-select" | "chat">("dashboard");
+  const [selectedDomain, setSelectedDomain] = useState<string>("all");
   const [language, setLanguage] = useState<"en" | "hi">("en");
   const [useBackendAPI, setUseBackendAPI] = useState(false);
 
@@ -116,10 +118,11 @@ const Index = () => {
 
   const handleSendMessage = useCallback(
     async (content: string, domain?: string) => {
-      setIsNewChatStarted(true);
+      setViewState("chat");
+      const domainToUse = domain || selectedDomain;
       if (useBackendAPI) {
         try {
-          await sendApiMessage(content, domain);
+          await sendApiMessage(content, domainToUse);
         } catch (err) {
           console.error("API Error:", err);
           // Fallback to local mode
@@ -129,7 +132,7 @@ const Index = () => {
         handleLocalMessage(content);
       }
     },
-    [useBackendAPI, sendApiMessage],
+    [useBackendAPI, sendApiMessage, selectedDomain],
   );
 
   const handleLocalMessage = useCallback(
@@ -196,7 +199,6 @@ const Index = () => {
     ? processingAgents
     : localProcessingAgents;
 
-  const showChatView = isNewChatStarted;
 
   // Map API messages to component format
   const formattedMessages = messages.map((msg) => {
@@ -223,12 +225,12 @@ const Index = () => {
       <Header
         language={language}
         onLanguageChange={setLanguage}
-        onLogoClick={() => setIsNewChatStarted(false)}
+        onLogoClick={() => setViewState("dashboard")}
       />
 
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden">
-          {!showChatView ? (
+          {viewState === "dashboard" && (
             <AuthenticatedDashboard
               language={language}
               onStartChat={(msg) => {
@@ -237,27 +239,43 @@ const Index = () => {
                 } else {
                   if (useBackendAPI) clearApiMessages();
                   else setLocalMessages([]);
-                  setIsNewChatStarted(true);
+                  // Show domain selection instead of going directly to chat
+                  setViewState("domain-select");
                 }
               }}
               onLoadSession={(sessionId) => {
-                setIsNewChatStarted(true);
+                setViewState("chat");
                 if (useBackendAPI) loadApiSession(sessionId);
               }}
             />
-          ) : (
+          )}
+          
+          {viewState === "domain-select" && (
+            <DomainSelection
+              language={language}
+              onSelectDomain={(domain) => {
+                setSelectedDomain(domain);
+                setViewState("chat");
+              }}
+              onBack={() => setViewState("dashboard")}
+            />
+          )}
+          
+          {viewState === "chat" && (
             <ChatInterface
               messages={formattedMessages}
-              onSendMessage={handleSendMessage}
+              onSendMessage={(content) => handleSendMessage(content, selectedDomain)}
               isProcessing={processing}
               language={language}
+              selectedDomain={selectedDomain}
               onLoadSession={(sessionId) => {
                 if (useBackendAPI) loadApiSession(sessionId);
               }}
               onNewChat={() => {
                 if (useBackendAPI) clearApiMessages();
                 else setLocalMessages([]);
-                setIsNewChatStarted(true);
+                // Go to domain selection for new chat
+                setViewState("domain-select");
               }}
             />
           )}
