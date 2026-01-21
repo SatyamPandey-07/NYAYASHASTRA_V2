@@ -34,16 +34,31 @@ class StatuteRetrievalAgent(BaseAgent):
     async def process(self, context: AgentContext) -> AgentContext:
         """Retrieve relevant statutes based on query from database."""
         
+        print(f"\n[STATUTE_AGENT] Starting retrieval")
+        print(f"[STATUTE_AGENT]   Query: {context.query[:80]}...")
+        print(f"[STATUTE_AGENT]   Specified domain: {context.specified_domain}")
+        print(f"[STATUTE_AGENT]   Detected domain: {context.detected_domain}")
+        print(f"[STATUTE_AGENT]   vector_store available: {self.vector_store is not None}")
+        
+        logger.info(f"[STATUTE AGENT] Starting retrieval for query: {context.query[:50]}...")
+        logger.info(f"[STATUTE AGENT] Specified domain: {context.specified_domain}")
+        logger.info(f"[STATUTE AGENT] Detected domain: {context.detected_domain}")
+        
         # Ensure vector store is available
         if not self.vector_store:
+            print("[STATUTE_AGENT]   Vector store is None, initializing...")
             try:
                 from app.services.vector_store import get_vector_store
                 self.vector_store = await get_vector_store()
+                print(f"[STATUTE_AGENT]   Vector store initialized: {self.vector_store is not None}")
+                logger.info("[STATUTE AGENT] Vector store initialized")
             except Exception as e:
+                print(f"[STATUTE_AGENT]   ERROR initializing vector store: {e}")
                 logger.warning(f"Vector store not available in StatuteRetrievalAgent: {e}")
         
         # Extract sections mentioned in query
         sections = [e["value"] for e in context.entities if e["type"] == "section"]
+        print(f"[STATUTE_AGENT]   Extracted sections: {sections}")
         
         retrieved_statutes = []
         
@@ -54,6 +69,7 @@ class StatuteRetrievalAgent(BaseAgent):
                     statute = await self.statute_service.get_section(section, act_code)
                     if statute:
                         retrieved_statutes.append(statute)
+                        print(f"[STATUTE_AGENT]   Found statute: {act_code} Section {section}")
                         logger.info(f"Retrieved {act_code} Section {section} from database")
         
         # 2. Semantic search for additional relevant statutes with domain filter
@@ -62,17 +78,20 @@ class StatuteRetrievalAgent(BaseAgent):
             
             # Get domain from context (specified or detected)
             domain_filter = context.specified_domain if context.specified_domain and context.specified_domain != "all" else None
+            print(f"[STATUTE_AGENT]   Domain filter for search: {domain_filter}")
             logger.info(f"Retrieving statutes for domain: {domain_filter}")
             if not domain_filter and context.detected_domain:
                 domain_filter = context.detected_domain
             
             # Search statutes with domain filter
+            print(f"[STATUTE_AGENT]   Calling search_statutes...")
             semantic_results = await self.vector_store.search_statutes(
                 query=query,
                 act_codes=context.applicable_acts,
                 domain=domain_filter,
                 limit=5
             )
+            print(f"[STATUTE_AGENT]   search_statutes returned {len(semantic_results)} results")
             
             # Add unique results
             existing_ids = {s.get("id") for s in retrieved_statutes}
@@ -81,22 +100,27 @@ class StatuteRetrievalAgent(BaseAgent):
                     retrieved_statutes.append(result)
             
             # Also search PDF documents with domain filter
+            print(f"[STATUTE_AGENT]   Calling search_documents...")
             doc_results = await self.vector_store.search_documents(
                 query=query,
                 domain=domain_filter,
                 limit=3
             )
+            print(f"[STATUTE_AGENT]   search_documents returned {len(doc_results)} results")
+            
+            logger.info(f"[STATUTE AGENT] Semantic search returned {len(semantic_results)} statutes, {len(doc_results)} documents")
             
             # Add document results as context
             for doc in doc_results:
                 if doc.get("id") not in existing_ids:
                     retrieved_statutes.append({
                         "id": doc.get("id"),
-                        "content_en": doc.get("content", ""),
+                        "content_en": doc.get("content", doc.get("content_en", "")),
                         "source": "document",
-                        "domain": doc.get("domain", ""),
+                        "domain": doc.get("domain", doc.get("category", "")),
                         "filename": doc.get("filename", "")
                     })
+                    logger.info(f"[STATUTE AGENT] Added doc: {doc.get('filename', 'unknown')[:30]}...")
         
         # 3. If no specific sections found, do keyword search in database
         if not retrieved_statutes:

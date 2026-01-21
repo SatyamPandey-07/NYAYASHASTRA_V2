@@ -36,6 +36,7 @@ class VectorStoreService:
         self.statutes_collection = None
         self.cases_collection = None
         self.documents_collection = None  # For PDF documents
+        self.legal_documents_collection = None  # Main collection with ingested PDFs
         self._initialized = False
     
     async def initialize(self):
@@ -67,7 +68,13 @@ class VectorStoreService:
                     metadata={"description": "PDF documents with domain categories"}
                 )
                 
-                logger.info("ChromaDB initialized successfully")
+                # Main legal_documents collection (from ingest_hybrid.py)
+                self.legal_documents_collection = self.client.get_or_create_collection(
+                    name="legal_documents",
+                    metadata={"description": "Legal PDFs ingested from data folder"}
+                )
+                
+                logger.info(f"ChromaDB initialized - legal_documents: {self.legal_documents_collection.count()} docs")
             
             if SENTENCE_TRANSFORMERS_AVAILABLE:
                 # Initialize embedding model
@@ -170,44 +177,60 @@ class VectorStoreService:
     async def search_statutes(self, query: str, act_codes: Optional[List[str]] = None,
                              domain: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
         """Search for relevant statutes."""
-        if not self.statutes_collection:
-            logger.warning("Vector store not initialized")
-            return []
         
-        # Build where filter
-        filters = []
-        if act_codes:
-            filters.append({"act_code": {"$in": act_codes}})
-        if domain and domain != "all":
-            filters.append({"domain": domain})
-            
-        where_filter = None
-        if len(filters) == 1:
-            where_filter = filters[0]
-        elif len(filters) > 1:
-            where_filter = {"$and": filters}
+        print(f"\n[VECTOR_STORE] search_statutes called")
+        print(f"[VECTOR_STORE]   Query: {query[:80]}...")
+        print(f"[VECTOR_STORE]   Domain: {domain}")
+        print(f"[VECTOR_STORE]   Act codes: {act_codes}")
         
-        # Generate query embedding
-        query_embedding = self.embed_text(query)
-        
-        # Search
-        results = self.statutes_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            where=where_filter
-        )
-        
-        # Format results
+        # First try the statutes collection
         formatted = []
-        if results and results["ids"]:
-            for i, doc_id in enumerate(results["ids"][0]):
-                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
-                formatted.append({
-                    "id": doc_id,
-                    "content": results["documents"][0][i] if results["documents"] else "",
-                    "distance": results["distances"][0][i] if results["distances"] else 0,
-                    **metadata
-                })
+        
+        statutes_count = self.statutes_collection.count() if self.statutes_collection else 0
+        print(f"[VECTOR_STORE]   statutes_collection has {statutes_count} docs")
+        
+        if self.statutes_collection and statutes_count > 0:
+            # Build where filter
+            filters = []
+            if act_codes:
+                filters.append({"act_code": {"$in": act_codes}})
+            if domain and domain != "all":
+                filters.append({"domain": domain})
+                
+            where_filter = None
+            if len(filters) == 1:
+                where_filter = filters[0]
+            elif len(filters) > 1:
+                where_filter = {"$and": filters}
+            
+            # Generate query embedding
+            query_embedding = self.embed_text(query)
+            
+            # Search
+            results = self.statutes_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=limit,
+                where=where_filter
+            )
+            
+            # Format results
+            if results and results["ids"]:
+                for i, doc_id in enumerate(results["ids"][0]):
+                    metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                    formatted.append({
+                        "id": doc_id,
+                        "content": results["documents"][0][i] if results["documents"] else "",
+                        "distance": results["distances"][0][i] if results["distances"] else 0,
+                        **metadata
+                    })
+        
+        # If statutes collection is empty, search legal_documents collection
+        if not formatted and self.legal_documents_collection:
+            print(f"[VECTOR_STORE]   Statutes collection empty/no results, searching legal_documents...")
+            logger.info(f"Statutes collection empty, searching legal_documents with domain: {domain}")
+            formatted = await self._search_legal_documents(query, domain, limit)
+        
+        print(f"[VECTOR_STORE]   search_statutes returning {len(formatted)} results")
         
         # Apply Re-ranking with BM25
         if formatted:
@@ -345,14 +368,28 @@ class VectorStoreService:
         
         Args:
             query: Search query
-            domain: Filter by domain (e.g., 'criminal', 'corporate')
+            domain: Filter by domain (e.g., 'Criminal', 'Civil_Family')
             category: Filter by category (same as domain)
             limit: Max results to return
             
         Returns:
             List of matching document chunks
         """
+        print(f"\n[VECTOR_STORE] search_documents called")
+        print(f"[VECTOR_STORE]   Query: {query[:80]}...")
+        print(f"[VECTOR_STORE]   Domain: {domain}, Category: {category}")
+        
+        # Primary search: use legal_documents collection (has the ingested data)
+        legal_docs_count = self.legal_documents_collection.count() if self.legal_documents_collection else 0
+        print(f"[VECTOR_STORE]   legal_documents_collection has {legal_docs_count} docs")
+        
+        if self.legal_documents_collection and legal_docs_count > 0:
+            print(f"[VECTOR_STORE]   Using legal_documents collection")
+            return await self._search_legal_documents(query, domain or category, limit)
+        
+        # Fallback to documents collection if legal_documents is empty
         if not self.documents_collection:
+            print(f"[VECTOR_STORE]   WARNING: No collections available!")
             logger.warning("Vector store not initialized")
             return []
         
@@ -381,8 +418,11 @@ class VectorStoreService:
                 formatted.append({
                     "id": doc_id,
                     "content": results["documents"][0][i] if results["documents"] else "",
+                    "content_en": results["documents"][0][i] if results["documents"] else "",
                     "distance": results["distances"][0][i] if results["distances"] else 0,
+                    "relevance_score": 1 - (results["distances"][0][i] if results["distances"] else 0),
                     "source": "document",
+                    "domain": metadata.get("category", metadata.get("domain", "")),
                     **metadata
                 })
         
@@ -391,6 +431,104 @@ class VectorStoreService:
             formatted = self._rerank_with_bm25(query, formatted)
             
         logger.info(f"Document search returned {len(formatted)} results (domain filter: {filter_domain})")
+        return formatted[:limit]
+    
+    async def _search_legal_documents(self, query: str, domain: Optional[str] = None, 
+                                      limit: int = 5) -> List[Dict[str, Any]]:
+        """Search the main legal_documents collection (ingested PDFs).
+        
+        This collection uses 'category' field for domain filtering.
+        """
+        print(f"\n[VECTOR_STORE] _search_legal_documents called")
+        print(f"[VECTOR_STORE]   Query: {query[:80]}...")
+        print(f"[VECTOR_STORE]   Domain filter: {domain}")
+        print(f"[VECTOR_STORE]   Limit: {limit}")
+        
+        if not self.legal_documents_collection:
+            print("[VECTOR_STORE]   ERROR: legal_documents_collection is None!")
+            return []
+        
+        collection_count = self.legal_documents_collection.count()
+        print(f"[VECTOR_STORE]   Collection has {collection_count} documents")
+        
+        # Build where filter - use 'category' field (that's what ingest_hybrid.py uses)
+        where_filter = None
+        if domain and domain.lower() not in ["all", ""]:
+            # Try exact match first
+            where_filter = {"category": domain}
+            print(f"[VECTOR_STORE]   Using where filter: {where_filter}")
+        
+        # Generate query embedding
+        print(f"[VECTOR_STORE]   Generating embedding...")
+        query_embedding = self.embed_text(query)
+        print(f"[VECTOR_STORE]   Embedding generated, length: {len(query_embedding) if query_embedding else 0}")
+        
+        if not query_embedding:
+            print("[VECTOR_STORE]   ERROR: Failed to generate embedding!")
+            return []
+        
+        try:
+            # Search with filter
+            print(f"[VECTOR_STORE]   Querying ChromaDB...")
+            results = self.legal_documents_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=limit,
+                where=where_filter
+            )
+            
+            print(f"[VECTOR_STORE]   Raw results: {len(results.get('ids', [[]])[0]) if results else 0} documents")
+            
+            # If no results with filter, try without filter
+            if (not results or not results["ids"] or not results["ids"][0]) and where_filter:
+                print(f"[VECTOR_STORE]   No results with filter, retrying without filter...")
+                logger.info(f"No results with domain filter '{domain}', searching all documents")
+                results = self.legal_documents_collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=limit
+                )
+                print(f"[VECTOR_STORE]   Without filter: {len(results.get('ids', [[]])[0]) if results else 0} documents")
+        except Exception as e:
+            print(f"[VECTOR_STORE]   ChromaDB query error: {e}")
+            logger.error(f"ChromaDB query error: {e}")
+            # Try without filter on error
+            results = self.legal_documents_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=limit
+            )
+        
+        # Format results
+        formatted = []
+        if results and results["ids"] and results["ids"][0]:
+            print(f"[VECTOR_STORE]   Formatting {len(results['ids'][0])} results...")
+            for i, doc_id in enumerate(results["ids"][0]):
+                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                content = results["documents"][0][i] if results["documents"] else ""
+                distance = results["distances"][0][i] if results["distances"] else 0
+                
+                print(f"[VECTOR_STORE]   Result {i+1}: {doc_id[:50]}... | distance: {distance:.4f} | category: {metadata.get('category', 'N/A')}")
+                
+                formatted.append({
+                    "id": doc_id,
+                    "content": content,
+                    "content_en": content,
+                    "distance": distance,
+                    "relevance_score": 1 - distance,
+                    "source": "legal_document",
+                    "domain": metadata.get("category", ""),
+                    "filename": metadata.get("filename", ""),
+                    "category": metadata.get("category", ""),
+                    **metadata
+                })
+        else:
+            print("[VECTOR_STORE]   WARNING: No results found!")
+        
+        # Apply Re-ranking with BM25
+        if formatted:
+            print(f"[VECTOR_STORE]   Re-ranking with BM25...")
+            formatted = self._rerank_with_bm25(query, formatted)
+            
+        print(f"[VECTOR_STORE]   Returning {len(formatted)} documents")
+        logger.info(f"Legal documents search returned {len(formatted)} results (domain: {domain})")
         return formatted[:limit]
 
 

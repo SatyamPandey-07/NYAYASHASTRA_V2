@@ -15,12 +15,16 @@ interface UploadedDocument {
 }
 
 interface DocumentSummary {
+  caseSummary: string[];
   keyArguments: string[];
   verdict: string;
   citedSections: Array<{ act: string; section: string }>;
   parties?: string;
   courtName?: string;
   date?: string;
+  complainant?: string;
+  accused?: string;
+  caseType?: string;
 }
 
 interface DocumentUploadProps {
@@ -112,6 +116,7 @@ export const DocumentUpload = ({ language, onDocumentProcessed }: DocumentUpload
           
           if (statusData.status === 'completed' && statusData.summary) {
             const summary: DocumentSummary = {
+              caseSummary: statusData.summary.case_summary || [],
               keyArguments: statusData.summary.key_arguments || [],
               verdict: statusData.summary.verdict || 'Processing completed',
               citedSections: (statusData.summary.cited_sections || []).map((s: any) => ({
@@ -121,6 +126,9 @@ export const DocumentUpload = ({ language, onDocumentProcessed }: DocumentUpload
               parties: statusData.summary.parties,
               courtName: statusData.summary.court_name,
               date: statusData.summary.date,
+              complainant: statusData.summary.complainant,
+              accused: statusData.summary.accused,
+              caseType: statusData.summary.case_type,
             };
             
             setDocuments((prev) =>
@@ -276,63 +284,143 @@ export const DocumentUpload = ({ language, onDocumentProcessed }: DocumentUpload
                   <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
-                    className="border-t border-border p-3 space-y-3"
+                    className="border-t border-border p-5 space-y-5"
                   >
-                    {/* Court & Date */}
-                    {(doc.summary.courtName || doc.summary.date) && (
-                      <div className="flex flex-wrap gap-2">
-                        {doc.summary.courtName && (
-                          <span className="text-xs bg-secondary/20 text-secondary px-2 py-0.5 rounded-full">
-                            {doc.summary.courtName}
-                          </span>
+                    {/* Case Type Badge */}
+                    {doc.summary.caseType && (
+                      <div className="flex justify-center">
+                        <span className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-700 px-4 py-2 rounded-full text-sm font-semibold border border-amber-500/30">
+                          <span>⚖️</span>
+                          {doc.summary.caseType}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Parties - Complainant vs Accused */}
+                    {(doc.summary.complainant || doc.summary.accused) && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gradient-to-r from-green-500/10 via-transparent to-red-500/10 rounded-xl border border-border/50">
+                        {doc.summary.complainant && (
+                          <div className="flex items-start gap-3 p-3 bg-green-500/10 rounded-lg border border-green-500/20">
+                            <span className="text-2xl">👤</span>
+                            <div>
+                              <p className="text-xs uppercase font-bold text-green-600 mb-1">
+                                {language === 'en' ? 'Complainant / Petitioner' : 'शिकायतकर्ता'}
+                              </p>
+                              <p className="text-sm font-medium text-foreground">{doc.summary.complainant}</p>
+                            </div>
+                          </div>
                         )}
-                        {doc.summary.date && (
-                          <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
-                            {doc.summary.date}
-                          </span>
+                        {doc.summary.accused && (
+                          <div className="flex items-start gap-3 p-3 bg-red-500/10 rounded-lg border border-red-500/20">
+                            <span className="text-2xl">👤</span>
+                            <div>
+                              <p className="text-xs uppercase font-bold text-red-600 mb-1">
+                                {language === 'en' ? 'Accused / Respondent' : 'आरोपी / प्रतिवादी'}
+                              </p>
+                              <p className="text-sm font-medium text-foreground">{doc.summary.accused}</p>
+                            </div>
+                          </div>
                         )}
                       </div>
                     )}
 
-                    {/* Key Arguments */}
-                    <div>
-                      <p className="text-xs font-semibold text-foreground mb-1">
-                        {language === 'en' ? 'Key Arguments' : 'मुख्य तर्क'}
-                      </p>
-                      <ul className="space-y-1">
-                        {doc.summary.keyArguments.map((arg, idx) => (
-                          <li key={idx} className="text-xs text-muted-foreground flex items-start gap-2">
-                            <span className="text-primary">•</span>
-                            {arg}
-                          </li>
-                        ))}
-                      </ul>
+                    {/* Court, Date & Parties Header */}
+                    <div className="flex flex-wrap gap-3 pb-4 border-b border-border/50">
+                      {doc.summary.courtName && (
+                        <div className="flex items-center gap-2 bg-secondary/20 px-4 py-2 rounded-lg">
+                          <span className="text-lg">🏛️</span>
+                          <span className="text-sm font-medium text-secondary">{doc.summary.courtName}</span>
+                        </div>
+                      )}
+                      {doc.summary.date && (
+                        <div className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg">
+                          <span className="text-lg">📅</span>
+                          <span className="text-sm font-medium text-muted-foreground">{doc.summary.date}</span>
+                        </div>
+                      )}
+                      {doc.summary.parties && (
+                        <div className="flex items-center gap-2 bg-blue-500/10 px-4 py-2 rounded-lg">
+                          <span className="text-lg">👥</span>
+                          <span className="text-sm font-medium text-blue-600">{doc.summary.parties}</span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Verdict */}
-                    <div className="rounded-lg bg-accent/10 p-2">
-                      <p className="text-xs font-semibold text-accent mb-1">
-                        {language === 'en' ? 'Verdict' : 'निर्णय'}
-                      </p>
-                      <p className="text-xs text-foreground">{doc.summary.verdict}</p>
+                    {/* Case Summary Box - Main highlight */}
+                    {doc.summary.caseSummary && doc.summary.caseSummary.length > 0 && (
+                      <div className="rounded-xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 p-5">
+                        <div className="flex items-center gap-2 mb-4">
+                          <span className="text-xl">📋</span>
+                          <h4 className="text-base font-bold text-foreground">
+                            {language === 'en' ? 'What Happened in This Case' : 'इस केस में क्या हुआ'}
+                          </h4>
+                        </div>
+                        <ul className="space-y-3">
+                          {doc.summary.caseSummary.map((point, idx) => (
+                            <li key={idx} className="flex items-start gap-3">
+                              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-sm font-bold flex items-center justify-center">
+                                {idx + 1}
+                              </span>
+                              <span className="text-sm text-foreground leading-relaxed">{point}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Key Arguments Section */}
+                    {doc.summary.keyArguments && doc.summary.keyArguments.length > 0 && (
+                      <div className="rounded-xl bg-muted/50 border border-border p-5">
+                        <div className="flex items-center gap-2 mb-4">
+                          <span className="text-xl">⚖️</span>
+                          <h4 className="text-base font-bold text-foreground">
+                            {language === 'en' ? 'Key Arguments' : 'मुख्य तर्क'}
+                          </h4>
+                        </div>
+                        <ul className="space-y-3">
+                          {doc.summary.keyArguments.map((arg, idx) => (
+                            <li key={idx} className="flex items-start gap-3">
+                              <span className="flex-shrink-0 text-primary text-lg">•</span>
+                              <span className="text-sm text-muted-foreground leading-relaxed">{arg}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Verdict Section */}
+                    <div className="rounded-xl bg-accent/15 border border-accent/30 p-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-xl">🔨</span>
+                        <h4 className="text-base font-bold text-accent">
+                          {language === 'en' ? 'Verdict / Decision' : 'निर्णय'}
+                        </h4>
+                      </div>
+                      <p className="text-sm text-foreground leading-relaxed">{doc.summary.verdict}</p>
                     </div>
 
                     {/* Cited Sections */}
-                    <div>
-                      <p className="text-xs font-semibold text-foreground mb-1">
-                        {language === 'en' ? 'Cited Sections' : 'उद्धृत धाराएं'}
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {doc.summary.citedSections.map((section, idx) => (
-                          <span
-                            key={idx}
-                            className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full"
-                          >
-                            {section.act} §{section.section}
-                          </span>
-                        ))}
+                    {doc.summary.citedSections && doc.summary.citedSections.length > 0 && (
+                      <div className="rounded-xl bg-muted/30 border border-border p-5">
+                        <div className="flex items-center gap-2 mb-4">
+                          <span className="text-xl">📜</span>
+                          <h4 className="text-base font-bold text-foreground">
+                            {language === 'en' ? 'Cited Legal Sections' : 'उद्धृत कानूनी धाराएं'}
+                          </h4>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {doc.summary.citedSections.map((section, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1.5 text-sm font-medium bg-primary/20 text-primary px-4 py-2 rounded-lg border border-primary/30"
+                            >
+                              <span className="text-base">§</span>
+                              {section.act} {section.section}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </motion.div>
                 )}
               </motion.div>

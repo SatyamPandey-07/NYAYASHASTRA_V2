@@ -5,6 +5,7 @@ Generates final comprehensive legal responses.
 
 from typing import Dict, Any, List, Optional
 import logging
+import re
 
 from app.agents.base import BaseAgent, AgentContext
 from app.schemas import AgentType
@@ -62,17 +63,35 @@ class ResponseSynthesisAgent(BaseAgent):
             from app.services.system_prompt import get_system_prompt
             from app.services.retriever_service import QueryClassifier
             
+            print(f"\n[RESPONSE_AGENT] _generate_llm_response called")
+            print(f"[RESPONSE_AGENT]   Query: {context.query[:80]}...")
+            print(f"[RESPONSE_AGENT]   Statutes count: {len(context.statutes)}")
+            print(f"[RESPONSE_AGENT]   LLM provider: {self.llm_service.provider if self.llm_service else 'None'}")
+            
             # 1. Use centralized relevance guardrail from context (set by Query Agent with BM25)
             is_relevant = context.is_relevant
             rejection_message = context.rejection_message or ""
+            
+            print(f"[RESPONSE_AGENT]   is_relevant from context: {is_relevant}")
+            print(f"[RESPONSE_AGENT]   specified_domain: {context.specified_domain}")
+            logger.info(f"[RESPONSE AGENT] is_relevant from context: {is_relevant}")
+            logger.info(f"[RESPONSE AGENT] rejection_message from context: {rejection_message[:50] if rejection_message else 'None'}")
             
             # If still considered relevant but a domain mismatch was flagged by keywords/fallback
             # This is a double check to ensure absolute reliability
             if is_relevant and context.specified_domain and context.specified_domain != "all":
                 from app.services.retriever_service import QueryClassifier
-                if not QueryClassifier.is_query_relevant_to_domain(context.query, context.specified_domain):
+                keyword_check = QueryClassifier.is_query_relevant_to_domain(context.query, context.specified_domain)
+                print(f"[RESPONSE_AGENT]   Keyword relevance check: {keyword_check}")
+                logger.info(f"[RESPONSE AGENT] Keyword relevance check for '{context.specified_domain}': {keyword_check}")
+                
+                if not keyword_check:
                      # Final LLM verify if keywords also fail
+                     print(f"[RESPONSE_AGENT]   Running LLM verification...")
+                     logger.info(f"[RESPONSE AGENT] Running LLM verification for domain relevance...")
                      is_relevant = await self._verify_relevance_with_llm(context.query, context.specified_domain)
+                     print(f"[RESPONSE_AGENT]   LLM verification result: {is_relevant}")
+                     logger.info(f"[RESPONSE AGENT] LLM verification result: {is_relevant}")
                      if not is_relevant:
                          rejection_message = f"⚠️ I couldn't find a strong connection between your query and **{context.specified_domain}** law."
             
@@ -80,10 +99,15 @@ class ResponseSynthesisAgent(BaseAgent):
             docs = []
             for s in context.statutes:
                 docs.append({
-                    "content": s.get("content_en", ""),
+                    "content": s.get("content_en", s.get("content", "")),
                     "filename": s.get("filename") or s.get("act_code") or "Statute",
-                    "category": s.get("domain", "")
+                    "category": s.get("domain", s.get("category", ""))
                 })
+            
+            print(f"[RESPONSE_AGENT]   Building system prompt with {len(docs)} documents")
+            if docs:
+                for i, d in enumerate(docs[:3]):
+                    print(f"[RESPONSE_AGENT]     Doc {i+1}: {d.get('filename', 'unknown')[:30]} | {d.get('category', 'N/A')} | content length: {len(d.get('content', ''))}")
             
             system_prompt = get_system_prompt(
                 user_query=context.query,
@@ -92,6 +116,8 @@ class ResponseSynthesisAgent(BaseAgent):
                 fallback_message=rejection_message,
                 selected_category=context.specified_domain
             )
+            
+            print(f"[RESPONSE_AGENT]   System prompt length: {len(system_prompt)} chars")
             
             # 3. Handle strict rejection
             if not is_relevant and rejection_message:
@@ -199,33 +225,68 @@ class ResponseSynthesisAgent(BaseAgent):
         return "\n".join(parts)
     
     def _generate_template_response(self, context: AgentContext) -> Dict[str, str]:
-        """Generate response using templates (fallback)."""
+        """Generate response using templates (fallback when LLM is unavailable)."""
         
         response_parts_en = []
         response_parts_hi = []
         
         # Header
-        response_parts_en.append(f"**Legal Analysis for: \"{context.query}\"**\n")
-        response_parts_hi.append(f"**कानूनी विश्लेषण: \"{context.query}\"**\n")
+        response_parts_en.append(f"## 📋 Legal Information for: \"{context.query}\"\n\n")
+        response_parts_hi.append(f"## 📋 कानूनी जानकारी: \"{context.query}\"\n\n")
         
-        # Statutes section
+        # Note about LLM unavailability
+        response_parts_en.append("*Note: AI-powered analysis is temporarily unavailable. Showing relevant legal documents found.*\n\n")
+        response_parts_hi.append("*नोट: AI-संचालित विश्लेषण अस्थायी रूप से अनुपलब्ध है। संबंधित कानूनी दस्तावेज़ दिखाए जा रहे हैं।*\n\n")
+        
+        # Statutes/Documents section
         if context.statutes:
-            response_parts_en.append("## 📜 Applicable Legal Provisions\n")
-            response_parts_hi.append("## 📜 लागू कानूनी प्रावधान\n")
+            response_parts_en.append("## 📜 Relevant Legal Provisions\n\n")
+            response_parts_hi.append("## 📜 संबंधित कानूनी प्रावधान\n\n")
             
-            for statute in context.statutes[:3]:
+            for i, statute in enumerate(context.statutes[:5], 1):
+                # Handle both database statutes and vector store documents
                 act = statute.get("act_code", "")
                 section = statute.get("section_number", "")
                 title = statute.get("title_en", "")
-                content = statute.get("content_en", "")
+                filename = statute.get("filename", "")
+                source = statute.get("source", "")
+                domain = statute.get("domain", statute.get("category", ""))
                 
-                response_parts_en.append(f"### {act} Section {section} - {title}\n")
-                response_parts_en.append(f"{content}\n")
+                # Get content from either content_en or content field
+                content = statute.get("content_en") or statute.get("content", "")
                 
-                title_hi = statute.get("title_hi", title)
-                content_hi = statute.get("content_hi", content)
-                response_parts_hi.append(f"### {act} धारा {section} - {title_hi}\n")
-                response_parts_hi.append(f"{content_hi}\n")
+                # Clean and truncate content for readability
+                if content:
+                    # Remove excessive whitespace and clean up
+                    content = re.sub(r'\s+', ' ', content).strip()
+                    # Limit to ~500 chars for template display
+                    if len(content) > 500:
+                        content = content[:500] + "..."
+                
+                # Build header based on available info
+                if act and section:
+                    header = f"**{i}. {act} Section {section}**"
+                    if title:
+                        header += f" - {title}"
+                elif filename:
+                    # Extract readable name from filename
+                    readable_name = filename.replace('_', ' ').replace('.pdf', '')
+                    header = f"**{i}. {readable_name}**"
+                else:
+                    header = f"**{i}. Legal Provision**"
+                
+                if domain:
+                    header += f" [{domain}]"
+                
+                response_parts_en.append(f"{header}\n")
+                response_parts_en.append(f"> {content}\n\n")
+                
+                # Hindi version - use same header format
+                content_hi = statute.get("content_hi") or content
+                if content_hi and len(content_hi) > 500:
+                    content_hi = content_hi[:500] + "..."
+                response_parts_hi.append(f"{header}\n")
+                response_parts_hi.append(f"> {content_hi}\n\n")
                 
                 # Punishment info
                 if statute.get("punishment_description"):
@@ -408,43 +469,70 @@ Answer with ONLY "YES" or "NO". Keep it simple.
         return results
 
     def _clean_legal_text(self, text: str) -> str:
-        """Clean messy legal text (e.g., from PDF extractions with missing spaces)."""
+        """Clean messy legal text from PDF extractions - fixes OCR and amendment noise."""
         if not text:
             return ""
-            
-        # 1. Fix missing spaces between common words/patterns
-        # e.g., "sub-section(2)ofsection330" -> "sub-section (2) of section 330"
         
-        # Add space before/after parentheses if touching letters
+        # Step 0: Remove legislative amendment annotations (not useful for users)
+        amendment_patterns = [
+            r'\d+\.\s*Subs\.?\s*by\s*(Act\s*)?\d+\s*of\s*\d{4},?\s*s\.?\s*\d+[^.]*\.?',
+            r'\d+\.\s*Ins\.?\s*by\s*(Act\s*)?\d+\s*of\s*\d{4}[^.]*\.?',
+            r'\d+\.\s*Omitted\s*by\s*(Act\s*)?\d+\s*of\s*\d{4}[^.]*\.?',
+            r'\(w\.?e\.?f\.?\s*\d{1,2}-\d{1,2}-\d{4}\)',
+            r'\[w\.?e\.?f\.?\s*\d{1,2}-\d{1,2}-\d{4}\]',
+            r'w\.?e\.?f\.?\s*\d{1,2}-\d{1,2}-\d{4}',
+            r'\d+\[',
+            r'\]\d+',
+            r'\|\|',
+            r'ibid\.,?\s*for\s*[-—]',
+            r'for\s*[-—]\s*the\s+',
+        ]
+        
+        for pattern in amendment_patterns:
+            text = re.sub(pattern, ' ', text, flags=re.IGNORECASE)
+        
+        # Step 1: Fix OCR broken words
+        ocr_fixes = [
+            (r'\bo\s*therw\s*ise\b', 'otherwise'),
+            (r'\bpun\s*ish\s*able\b', 'punishable'),
+            (r'\bpun\s*ish\s*ment\b', 'punishment'),
+            (r'\bimpr\s*ison\s*ment\b', 'imprisonment'),
+            (r'\boff\s*ence\b', 'offence'),
+            (r'\bcom\s*mits?\b', r'commit'),
+            (r'\bterr\s*or\s*ism\b', 'terrorism'),
+            (r'\belec\s*tron\s*ic\b', 'electronic'),
+            (r'\bsec\s*tion\b', 'section'),
+            (r'\bSec\s*tion\b', 'Section'),
+            (r'\bwho\s*ever\b', 'whoever'),
+            (r'\bgov\s*ern\s*ment\b', 'government'),
+            (r'\bpro\s*vi\s*sion\b', 'provision'),
+            (r'\bcrim\s*in\s*al\b', 'criminal'),
+            (r'\bego\s*vernance\b', 'e-governance'),
+            (r'\begovernance\b', 'e-governance'),
+            (r'\becommerce\b', 'e-commerce'),
+            (r'\babet\s*ment\b', 'abetment'),
+            (r'\bencry\s*ption\b', 'encryption'),
+            (r'f\s+or\b', 'for'),
+            (r'\bf\s+orm\b', 'form'),
+        ]
+        
+        for pattern, replacement in ocr_fixes:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        
+        # Step 2: Fix punctuation and spacing
+        text = re.sub(r'([,;:])([a-zA-Z])', r'\1 \2', text)
         text = re.sub(r'([a-zA-Z])(\()', r'\1 \2', text)
         text = re.sub(r'(\))([a-zA-Z])', r'\1 \2', text)
+        text = re.sub(r'\.–', '. ', text)
+        text = re.sub(r'–', ' - ', text)
         
-        # Add space between common word transitions like "ofsection" or "underthis"
-        keywords = ["section", "Sanhita", "Act", "sub-section", "Code", "means", "shall", "punishable"]
-        for word in keywords:
-            # Word preceded by letter without space: "ofsection" -> "of section"
-            text = re.sub(rf'([a-z])({word})', r'\1 \2', text, flags=re.IGNORECASE)
-            # Word followed by letter without space: "section308" -> "section 308"
-            text = re.sub(rf'({word})([a-z0-9])', r'\1 \2', text, flags=re.IGNORECASE)
-            
-        # Add space between lowercase and uppercase (CamelCase issues from OCR)
-        text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
-        
-        # Fix specific concatenated common legal words
-        concats = {
-            r'sub-section\((\d+)\)': r'sub-section (\1)',
-            r'section(\d+)': r'section \1',
-            r'ofsection': 'of section',
-            r'underthis': 'under this',
-            r'withorwithout': 'with or without',
-            r'sixmonthsormore': 'six months or more',
-            r'aswellas': 'as well as',
-            r'meansathing': 'means a thing'
-        }
-        for pattern, replacement in concats.items():
-            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-            
-        # 2. Fix multiple spaces and newlines
+        # Step 3: Fix multiple spaces
         text = re.sub(r'\s+', ' ', text).strip()
+        
+        # Step 4: Remove incomplete sentences at start
+        if text and (text[0].islower() or text.startswith('of ') or text.startswith('for ')):
+            match = re.search(r'[.]\s*([A-Z][a-z])', text)
+            if match:
+                text = text[match.start()+2:]
         
         return text

@@ -60,92 +60,129 @@ class CitationAgent(BaseAgent):
         self.color = "#ff4081"
     
     def _clean_legal_text(self, text: str) -> str:
-        """Clean messy legal text from PDF extractions - AGGRESSIVE VERSION."""
+        """Clean messy legal text from PDF extractions - fixes OCR and amendment noise."""
         if not text:
             return ""
         
-        # Step 1: Fix punctuation spacing (comma, semicolon, colon without space after)
-        text = re.sub(r'([,;:])([a-zA-Z])', r'\1 \2', text)
+        # Step 0: Remove legislative amendment annotations (not useful for users)
+        # Patterns like: "1. Subs. by Act 7 of 2017, s. 169, for..." 
+        # "[w.e.f. 26-5-2017]" etc.
+        amendment_patterns = [
+            r'\d+\.\s*Subs\.?\s*by\s*(Act\s*)?\d+\s*of\s*\d{4},?\s*s\.?\s*\d+[^.]*\.?',  # "1. Subs. by Act 7 of 2017, s. 169"
+            r'\d+\.\s*Ins\.?\s*by\s*(Act\s*)?\d+\s*of\s*\d{4}[^.]*\.?',  # "2. Ins. by Act..."
+            r'\d+\.\s*Omitted\s*by\s*(Act\s*)?\d+\s*of\s*\d{4}[^.]*\.?',  # "3. Omitted by..."
+            r'\(w\.?e\.?f\.?\s*\d{1,2}-\d{1,2}-\d{4}\)',  # (w.e.f. 26-5-2017)
+            r'\[w\.?e\.?f\.?\s*\d{1,2}-\d{1,2}-\d{4}\]',  # [w.e.f. 26-5-2017]
+            r'w\.?e\.?f\.?\s*\d{1,2}-\d{1,2}-\d{4}',  # w.e.f. 26-5-2017
+            r'\d+\[',  # Footnote markers like "1[" or "84A"
+            r'\]\d+',  # Closing footnote markers
+            r'\|\|',   # Double pipes
+            r'ibid\.,?\s*for\s*[-—]',  # "ibid., for —"
+            r'for\s*[-—]\s*the\s+',  # "for — the"
+        ]
         
-        # Step 2: Add space before/after parentheses touching letters
+        for pattern in amendment_patterns:
+            text = re.sub(pattern, ' ', text, flags=re.IGNORECASE)
+        
+        # Step 1: Fix OCR broken words (spaces inserted in middle of words)
+        ocr_fixes = [
+            (r'\bo\s*therw\s*ise\b', 'otherwise'),
+            (r'\bpun\s*ish\s*able\b', 'punishable'),
+            (r'\bpun\s*ish\s*ment\b', 'punishment'),
+            (r'\bimpr\s*ison\s*ment\b', 'imprisonment'),
+            (r'\bimpr\s*ison\b', 'imprison'),
+            (r'\bpubl\s*ish\s*(es|ed|ing)?\b', r'publish\1'),
+            (r'\btransmitt\s*ing\b', 'transmitting'),
+            (r'\btransmit\s*ted\b', 'transmitted'),
+            (r'\boff\s*ence\b', 'offence'),
+            (r'\boff\s*ender\b', 'offender'),
+            (r'\bcom\s*mits?\b', r'commit'),
+            (r'\bcon\s*spires?\b', 'conspire'),
+            (r'\bterr\s*or\s*ism\b', 'terrorism'),
+            (r'\blas\s*civ\s*ious\b', 'lascivious'),
+            (r'\bpru\s*ri\s*ent\b', 'prurient'),
+            (r'\belec\s*tron\s*ic\b', 'electronic'),
+            (r'\bmat\s*er\s*ial\b', 'material'),
+            (r'\bobs\s*cene\b', 'obscene'),
+            (r'\bin\s*div\s*id\s*uals?\b', r'individual'),
+            (r'\bna\s*tion\b', 'nation'),
+            (r'\bcy\s*ber\b', 'cyber'),
+            (r'\bsec\s*tion\b', 'section'),
+            (r'\bSec\s*tion\b', 'Section'),
+            (r'\bwho\s*ever\b', 'whoever'),
+            (r'\bWho\s*ever\b', 'Whoever'),
+            (r'\bex\s*tend\b', 'extend'),
+            (r'\bcaus\s*es\b', 'causes'),
+            (r'\bef\s*fect\b', 'effect'),
+            (r'\bin\s*ter\s*est\b', 'interest'),
+            (r'\bap\s*peals?\b', r'appeal'),
+            (r'\bper\s*son\b', 'person'),
+            (r'\bPer\s*son\b', 'Person'),
+            (r'\bsub\s*ject\b', 'subject'),
+            (r'\bpro\s*vi\s*sion\b', 'provision'),
+            (r'\bPro\s*vi\s*sion\b', 'Provision'),
+            (r'\bgov\s*ern\s*ment\b', 'government'),
+            (r'\bGov\s*ern\s*ment\b', 'Government'),
+            (r'\blaw\s*ful\b', 'lawful'),
+            (r'\bun\s*law\s*ful\b', 'unlawful'),
+            (r'\bwil\s*ful\b', 'wilful'),
+            (r'\bknow\s*ing\s*ly\b', 'knowingly'),
+            (r'\bin\s*tent\s*ion\b', 'intention'),
+            (r'\bac\s*cused\b', 'accused'),
+            (r'\bcon\s*vict\s*ed\b', 'convicted'),
+            (r'\bsen\s*tence\b', 'sentence'),
+            (r'\bpros\s*ecu\s*tion\b', 'prosecution'),
+            (r'\bevi\s*dence\b', 'evidence'),
+            (r'\bwit\s*ness\b', 'witness'),
+            (r'\bjudg\s*ment\b', 'judgment'),
+            (r'\bver\s*dict\b', 'verdict'),
+            (r'\bcrim\s*in\s*al\b', 'criminal'),
+            (r'\bCrim\s*in\s*al\b', 'Criminal'),
+            (r'\bciv\s*il\b', 'civil'),
+            (r'\bCiv\s*il\b', 'Civil'),
+            (r'\bliab\s*il\s*ity\b', 'liability'),
+            (r'\bliab\s*le\b', 'liable'),
+            (r'\bdam\s*ages?\b', r'damage'),
+            (r'\bcom\s*pen\s*sa\s*tion\b', 'compensation'),
+            (r'f\s+or\b', 'for'),
+            (r'\bf\s+orm\b', 'form'),
+            (r'\bt\s+o\b', 'to'),
+            (r'\bego\s*vernance\b', 'e-governance'),
+            (r'\begovernance\b', 'e-governance'),
+            (r'\becommerce\b', 'e-commerce'),
+            (r'\babet\s*ment\b', 'abetment'),
+            (r'\bencry\s*ption\b', 'encryption'),
+            (r'\bpre\s*scribe\b', 'prescribe'),
+            (r'\bpro\s*motion\b', 'promotion'),
+            (r'\bChair\s*person\b', 'Chairperson'),
+            (r'\badju\s*dicat\s*ing\b', 'adjudicating'),
+            (r'\bTri\s*bunal\b', 'Tribunal'),
+            (r'\bAppel\s*late\b', 'Appellate'),
+        ]
+        
+        for pattern, replacement in ocr_fixes:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        
+        # Step 2: Fix punctuation and spacing issues
+        text = re.sub(r'([,;:])([a-zA-Z])', r'\1 \2', text)
         text = re.sub(r'([a-zA-Z])(\()', r'\1 \2', text)
         text = re.sub(r'(\))([a-zA-Z])', r'\1 \2', text)
         
-        # Step 3: Add space before common legal terms (most important fix)
-        legal_terms = [
-            'section', 'Section', 'sub-section', 'Sub-section',
-            'Act', 'Sanhita', 'Code', 'law', 'Law',
-            'under', 'Under', 'with', 'With', 'without', 'Without',
-            'the', 'The', 'and', 'And', 'or', 'Or',
-            'shall', 'Shall', 'means', 'Means', 'is', 'Is',
-            'for', 'For', 'of', 'Of', 'in', 'In', 'to', 'To',
-            'punishable', 'Punishable', 'imprisonment', 'Imprisonment',
-            'offence', 'Offence', 'person', 'Person',
-            'any', 'Any', 'such', 'Such', 'same', 'Same',
-            'thing', 'Thing', 'act', 'when', 'When',
-            'well', 'Well', 'series', 'Series', 'single', 'Single',
-            'denotes', 'Denotes', 'omission', 'Omission',
-            'special', 'Special', 'local', 'Local',
-            'months', 'Months', 'years', 'Years', 'term', 'Term',
-            'fine', 'Fine', 'whether', 'Whether',
-        ]
+        # Step 3: Clean up section references
+        text = re.sub(r'(\d+)([A-Z]\.)', r'\1\2 ', text)  # "84A." -> "84A. "
+        text = re.sub(r'\.–', '. ', text)  # ".–" -> ". "
+        text = re.sub(r'–', ' - ', text)  # em-dash to spaced hyphen
         
-        for term in legal_terms:
-            # Add space before term if preceded by lowercase letter
-            text = re.sub(rf'([a-z])({term})', rf'\1 \2', text)
-        
-        # Step 4: Specific compound word fixes
-        compounds = [
-            (r'thingpunishable', 'thing punishable'),
-            (r'lawwith', 'law with'),
-            (r'lawor', 'law or'),
-            (r'lawis', 'law is'),
-            (r'lawunder', 'law under'),
-            (r'fora', 'for a'),
-            (r'asa', 'as a'),
-            (r'aswell', 'as well'),
-            (r'wellasa', 'well as a'),
-            (r'underany', 'under any'),
-            (r'orunder', 'or under'),
-            (r'andthe', 'and the'),
-            (r'whenthe', 'when the'),
-            (r'ofthe', 'of the'),
-            (r'inthe', 'in the'),
-            (r'tothe', 'to the'),
-            (r'suchlaw', 'such law'),
-            (r'samelaw', 'same law'),
-            (r'anylaw', 'any law'),
-            (r'speciallaw', 'special law'),
-            (r'locallaw', 'local law'),
-            (r'actpunishable', 'act punishable'),
-            (r'ispunishable', 'is punishable'),
-            (r'offencemeans', 'offence means'),
-            (r'meansathing', 'means a thing'),
-            (r'meansa', 'means a'),
-            (r'sectionand', 'section and'),
-            (r'sectionor', 'section or'),
-            (r'sectionof', 'section of'),
-            (r'omissionsasa', 'omissions as a'),
-            (r'omissionsas', 'omissions as'),
-            (r'seriesof', 'series of'),
-            (r'termof', 'term of'),
-            (r'monthsor', 'months or'),
-            (r'yearsor', 'years or'),
-            (r'"offence"', '"offence" '),
-            (r'"person"', '"person" '),
-        ]
-        
-        for pattern, replacement in compounds:
-            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-        
-        # Step 5: Add space between lowercase-uppercase (CamelCase artifacts)
-        text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
-        
-        # Step 6: Add space between closing quote and letter
-        text = re.sub(r'(["\'])([a-zA-Z])', r'\1 \2', text)
-        
-        # Step 7: Fix multiple spaces
+        # Step 4: Fix multiple spaces and clean up
         text = re.sub(r'\s+', ' ', text).strip()
+        
+        # Step 5: Remove incomplete sentences at start (amendment leftovers)
+        # If text starts with lowercase or incomplete pattern, try to find first complete sentence
+        if text and (text[0].islower() or text.startswith('of ') or text.startswith('for ')):
+            # Find first capital letter that starts a sentence
+            match = re.search(r'[.]\s*([A-Z][a-z])', text)
+            if match:
+                text = text[match.start()+2:]
         
         return text
     

@@ -19,7 +19,7 @@ import {
   ChevronDown,
   Upload,
   FileCheck,
-  Eye,
+  ExternalLink,
   Download,
   Copy,
   Check,
@@ -29,7 +29,6 @@ import { jsPDF } from "jspdf";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useChatHistory } from "@/hooks/useApi";
-import { CitationViewer } from "./CitationViewer";
 import { ConsultLawyerButton } from "./ConsultLawyerButton";
 
 // Domain options for regulatory filtering - matches data folder structure
@@ -187,10 +186,6 @@ export const ChatInterface = ({
   const [interimTranscript, setInterimTranscript] = useState("");
   const [selectedDomain, setSelectedDomain] = useState(propDomain || "all");
   const [showDomainDropdown, setShowDomainDropdown] = useState(false);
-  const [showCitationViewer, setShowCitationViewer] = useState(false);
-  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(
-    null,
-  );
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDocument[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -999,20 +994,19 @@ export const ChatInterface = ({
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {message.citations.map((citation) => (
-                          <button
+                          <a
                             key={citation.id}
-                            onClick={() => {
-                              setSelectedCitation(citation);
-                              setShowCitationViewer(true);
-                            }}
+                            href={citation.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/5 border border-primary/20 text-xs text-foreground hover:bg-primary/10 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/10 transition-all"
                           >
                             <Scale className="h-3 w-3 text-primary" />
                             <span className="truncate max-w-[180px]">
                               {citation.title}
                             </span>
-                            <Eye className="h-3 w-3 text-primary/50 group-hover:text-primary transition-colors" />
-                          </button>
+                            <ExternalLink className="h-3 w-3 text-primary/50 group-hover:text-primary transition-colors" />
+                          </a>
                         ))}
                       </div>
                     </div>
@@ -1705,17 +1699,6 @@ export const ChatInterface = ({
           </div>
         </div>
       </div>
-
-      {/* Citation Viewer Modal */}
-      <CitationViewer
-        isOpen={showCitationViewer}
-        onClose={() => {
-          setShowCitationViewer(false);
-          setSelectedCitation(null);
-        }}
-        citation={selectedCitation}
-        language={language}
-      />
     </div>
   );
 };

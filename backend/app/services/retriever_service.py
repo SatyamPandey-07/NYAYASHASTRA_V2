@@ -138,8 +138,39 @@ class QueryClassifier:
     
     @classmethod
     def is_query_relevant_to_domain(cls, query: str, domain: str) -> bool:
-        """Deprecated: Use BM25DomainClassifier.classify instead."""
-        return True # Fallback to allow search, guardrail happens in RetrieverService or ResponseAgent
+        """
+        Quick keyword-based relevance check as a fallback/secondary validation.
+        Returns True if query appears relevant to the specified domain.
+        """
+        if not domain or domain.lower() == "all":
+            return True
+            
+        query_lower = query.lower()
+        domain_keywords = cls.DOMAIN_KEYWORDS.get(domain, [])
+        
+        # If domain has no keywords defined, allow it
+        if not domain_keywords:
+            logger.warning(f"No keywords defined for domain: {domain}")
+            return True
+        
+        # Check if any domain keyword appears in query
+        matching_keywords = [kw for kw in domain_keywords if kw in query_lower]
+        
+        if matching_keywords:
+            logger.debug(f"Query matches domain '{domain}' keywords: {matching_keywords[:3]}")
+            return True
+        
+        # Check other domains to see if query clearly belongs elsewhere
+        for other_domain, keywords in cls.DOMAIN_KEYWORDS.items():
+            if other_domain == domain:
+                continue
+            other_matches = [kw for kw in keywords if kw in query_lower]
+            if len(other_matches) >= 2:  # Strong match to another domain
+                logger.info(f"Query appears to belong to '{other_domain}' (matches: {other_matches[:3]}), not '{domain}'")
+                return False
+        
+        # No strong match to any domain, allow it (ambiguous query)
+        return True
 
 
 # =============================================================================

@@ -36,6 +36,23 @@ async def process_chat_message(
     Returns comprehensive legal information with citations.
     Messages are saved to database for chat history.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # DEBUG: Log incoming request to verify domain is received
+    print(f"\n{'#'*60}")
+    print(f"[CHAT API] ===== NEW CHAT REQUEST =====")
+    print(f"[CHAT API] Content: '{request.content[:80]}...'")
+    print(f"[CHAT API] Domain: '{request.domain}'")
+    print(f"[CHAT API] Language: '{request.language}'")
+    print(f"[CHAT API] Session ID: '{request.session_id}'")
+    print(f"{'#'*60}\n")
+    
+    logger.info(f"[CHAT API] Received request - Content: '{request.content[:50]}...'")
+    logger.info(f"[CHAT API] Domain from frontend: '{request.domain}'")
+    logger.info(f"[CHAT API] Language: '{request.language}'")
+    logger.info(f"[CHAT API] Session ID: '{request.session_id}'")
+    
     orchestrator = get_orchestrator()
     chat_service = get_chat_service()
     
@@ -121,6 +138,21 @@ async def process_chat_message_stream(
     Returns server-sent events for real-time UI updates.
     Messages are saved to database for chat history.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # DEBUG: Log incoming streaming request
+    print(f"\n{'#'*60}")
+    print(f"[CHAT STREAM API] ===== NEW STREAMING REQUEST =====")
+    print(f"[CHAT STREAM API] Content: '{request.content[:80]}...'")
+    print(f"[CHAT STREAM API] Domain: '{request.domain}'")
+    print(f"[CHAT STREAM API] Language: '{request.language}'")
+    print(f"[CHAT STREAM API] Session ID: '{request.session_id}'")
+    print(f"{'#'*60}\n")
+    
+    logger.info(f"[CHAT STREAM API] Received request - Content: '{request.content[:50]}...'")
+    logger.info(f"[CHAT STREAM API] Domain from frontend: '{request.domain}'")
+    
     orchestrator = get_orchestrator()
     chat_service = get_chat_service()
     

@@ -256,12 +256,16 @@ class CaseLawSearchResponse(BaseModel):
 
 class DocumentSummary(BaseModel):
     """Document summary after processing."""
+    case_summary: List[str] = []  # Bullet point summary of the case facts
     key_arguments: List[str] = []
     verdict: Optional[str] = None
     cited_sections: List[Dict[str, str]] = []  # [{act, section}]
     parties: Optional[str] = None
     court_name: Optional[str] = None
     date: Optional[str] = None
+    complainant: Optional[str] = None  # Who filed the case
+    accused: Optional[str] = None  # Against whom case was filed
+    case_type: Optional[str] = None  # Criminal, Civil, etc.
 
 
 class DocumentUploadResponse(BaseModel):

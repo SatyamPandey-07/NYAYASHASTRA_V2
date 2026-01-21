@@ -57,6 +57,12 @@ class QueryUnderstandingAgent(BaseAgent):
         await self._init_classifier()
         predicted_domain, confidence, all_scores = await self.domain_classifier.classify(query)
         
+        # DEBUG: Log classification results for troubleshooting
+        logger.info(f"[GUARDRAIL DEBUG] Query: '{query[:50]}...'")
+        logger.info(f"[GUARDRAIL DEBUG] Predicted domain: {predicted_domain} (confidence: {confidence:.3f})")
+        logger.info(f"[GUARDRAIL DEBUG] All scores: {all_scores}")
+        logger.info(f"[GUARDRAIL DEBUG] Specified domain: {context.specified_domain}")
+        
         if context.specified_domain and context.specified_domain != "all":
             context.detected_domain = context.specified_domain
             logger.info(f"Using specified domain: {context.detected_domain}")
@@ -66,9 +72,13 @@ class QueryUnderstandingAgent(BaseAgent):
             selected_score = all_scores.get(context.specified_domain, 0)
             top_score = confidence
             
+            logger.info(f"[GUARDRAIL DEBUG] Selected domain '{context.specified_domain}' score: {selected_score:.3f}")
+            
             is_match = (predicted_domain == context.specified_domain)
             is_close = (selected_score > (top_score * 0.5) and selected_score > 0.1)
             is_strong = (selected_score > 0.2)
+            
+            logger.info(f"[GUARDRAIL DEBUG] is_match={is_match}, is_close={is_close}, is_strong={is_strong}")
             
             if not (is_match or is_close or is_strong):
                 context.is_relevant = False
@@ -78,7 +88,8 @@ class QueryUnderstandingAgent(BaseAgent):
                     f"To ensure legal accuracy, I only answer {context.specified_domain} queries in this mode. "
                     f"Please switch to the **{predicted_domain}** domain for a detailed response."
                 )
-                logger.warning(f"Domain guardrail triggered: query '{query}' is {predicted_domain}, not {context.specified_domain} (scores: top={top_score:.2f}, selected={selected_score:.2f})")
+                logger.warning(f"[GUARDRAIL TRIGGERED] Query '{query}' classified as {predicted_domain}, not {context.specified_domain}")
+                logger.warning(f"[GUARDRAIL TRIGGERED] Scores - top: {top_score:.3f}, selected: {selected_score:.3f}")
         else:
             context.detected_domain = predicted_domain
             logger.info(f"Automatically detected domain: {context.detected_domain} (conf: {confidence:.2f})")

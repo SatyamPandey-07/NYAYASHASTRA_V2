@@ -83,7 +83,16 @@ class AgentOrchestrator:
                            domain: Optional[str] = None) -> Dict[str, Any]:
         """Process a legal query through the full agent pipeline."""
         
+        print(f"\n{'='*60}")
+        print(f"[ORCHESTRATOR] ===== NEW QUERY =====")
+        print(f"[ORCHESTRATOR] Query: {query[:100]}")
+        print(f"[ORCHESTRATOR] Domain: {domain}")
+        print(f"[ORCHESTRATOR] Language: {language}")
+        print(f"{'='*60}\n")
+        
         await self._ensure_services()
+        
+        print(f"[ORCHESTRATOR] Services ensured - vector_store: {self.vector_store is not None}, llm: {self.llm_service is not None}")
         
         if not session_id:
             session_id = str(uuid.uuid4())
@@ -102,13 +111,20 @@ class AgentOrchestrator:
         for agent in self.agents:
             # If a domain mismatch was detected, skip all agents except the response agent
             if not context.is_relevant and agent.agent_type != AgentType.RESPONSE:
+                print(f"[ORCHESTRATOR] Skipping agent {agent.name} due to domain mismatch/rejection")
                 logger.info(f"Skipping agent {agent.name} due to domain mismatch/rejection")
                 continue
-                
+            
+            print(f"\n[ORCHESTRATOR] >>> Running agent: {agent.name}")
             try:
                 context = await agent.execute(context)
+                print(f"[ORCHESTRATOR] <<< Agent {agent.name} completed")
+                print(f"[ORCHESTRATOR]     - statutes count: {len(context.statutes)}")
+                print(f"[ORCHESTRATOR]     - case_laws count: {len(context.case_laws)}")
+                print(f"[ORCHESTRATOR]     - is_relevant: {context.is_relevant}")
                 logger.info(f"Agent {agent.name} completed")
             except Exception as e:
+                print(f"[ORCHESTRATOR] !!! Agent {agent.name} FAILED: {e}")
                 logger.error(f"Agent {agent.name} failed: {e}")
                 context.add_error(agent.name, str(e))
         
