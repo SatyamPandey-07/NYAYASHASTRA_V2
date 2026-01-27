@@ -135,12 +135,19 @@ class BM25DomainClassifier:
             await self._get_domain_embeddings()
             query_embedding = self.vector_store.embed_text(query)
             
-            for i, domain in enumerate(self.domains):
-                domain_emb = self._domain_embeddings.get(domain)
-                if domain_emb:
-                    # Cosine similarity
-                    sim = np.dot(query_embedding, domain_emb) / (np.linalg.norm(query_embedding) * np.linalg.norm(domain_emb))
-                    semantic_scores[i] = sim
+            # Check if embedding is valid (not empty or zero)
+            if len(query_embedding) == 0 or np.all(np.array(query_embedding) == 0):
+                print(f"[BM25] Warning: Query embedding is zero/empty, skipping semantic scoring")
+            else:
+                for i, domain in enumerate(self.domains):
+                    domain_emb = self._domain_embeddings.get(domain)
+                    if domain_emb and len(domain_emb) > 0:
+                        # Cosine similarity with safety check
+                        q_norm = np.linalg.norm(query_embedding)
+                        d_norm = np.linalg.norm(domain_emb)
+                        if q_norm > 0 and d_norm > 0:
+                            sim = np.dot(query_embedding, domain_emb) / (q_norm * d_norm)
+                            semantic_scores[i] = sim
 
         # 3. Hybrid Score (Weighted avg of BM25 and Semantic)
         # BM25 is good for keywords, Semantic is good for intent.

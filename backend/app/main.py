@@ -3,6 +3,12 @@ NyayGuru AI Pro - Main FastAPI Application
 Production-grade AI Legal Assistant for Indian Law.
 """
 
+import os
+# CRITICAL: Force CPU-only mode and limit threads
+os.environ['OMP_NUM_THREADS'] = '4'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -200,7 +206,9 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.api_host,
         port=settings.api_port,
-        reload=settings.api_debug
+        reload=settings.api_debug,
+        workers=1,  # MEMORY-SAFE: Single worker only
+        log_level="info"
     )
 
 # Reload: 2026-01-20 03:42:23.842445

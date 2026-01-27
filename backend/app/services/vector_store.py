@@ -68,18 +68,18 @@ class VectorStoreService:
                     metadata={"description": "PDF documents with domain categories"}
                 )
                 
-                # Main legal_documents collection (from ingest_hybrid.py)
+                # Main legal_documents collection (from ingest_semantic.py)
                 self.legal_documents_collection = self.client.get_or_create_collection(
-                    name="legal_documents",
-                    metadata={"description": "Legal PDFs ingested from data folder"}
+                    name="legal_documents_semantic",  # Match ingestion script
+                    metadata={"description": "Legal PDFs with semantic chunking and BGE-M3 embeddings"}
                 )
                 
-                logger.info(f"ChromaDB initialized - legal_documents: {self.legal_documents_collection.count()} docs")
+                logger.info(f"ChromaDB initialized - legal_documents_semantic: {self.legal_documents_collection.count()} docs")
             
-            if SENTENCE_TRANSFORMERS_AVAILABLE:
-                # Initialize embedding model
-                self.embedding_model = SentenceTransformer(settings.embedding_model)
-                logger.info(f"Embedding model '{settings.embedding_model}' loaded")
+            # Use the same embedding service that was used for ingestion
+            from app.services.embedding_service import get_embedding_service
+            self.embedding_service = get_embedding_service()
+            logger.info(f"Using embedding service with dimension: {self.embedding_service.get_embedding_dimension()}")
             
             self._initialized = True
             
@@ -88,15 +88,16 @@ class VectorStoreService:
             raise
     
     def embed_text(self, text: str) -> List[float]:
-        """Generate embedding for text."""
-        if self.embedding_model:
-            return self.embedding_model.encode(text).tolist()
+        """Generate embedding for text using the same model as ingestion."""
+        if hasattr(self, 'embedding_service'):
+            return self.embedding_service.embed_query(text).tolist()
         return []
     
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple texts."""
-        if self.embedding_model:
-            return self.embedding_model.encode(texts).tolist()
+        """Generate embeddings for multiple texts using the same model as ingestion."""
+        if hasattr(self, 'embedding_service'):
+            embeddings = self.embedding_service.embed_documents(texts)
+            return embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings
         return []
     
     async def add_statutes(self, statutes: List[Dict[str, Any]]):
@@ -451,11 +452,11 @@ class VectorStoreService:
         collection_count = self.legal_documents_collection.count()
         print(f"[VECTOR_STORE]   Collection has {collection_count} documents")
         
-        # Build where filter - use 'category' field (that's what ingest_hybrid.py uses)
+        # Build where filter - use 'domain' field (that's what ingest_semantic.py uses)
         where_filter = None
         if domain and domain.lower() not in ["all", ""]:
-            # Try exact match first
-            where_filter = {"category": domain}
+            # Use 'domain' field which is set by ingest_semantic.py
+            where_filter = {"domain": domain}
             print(f"[VECTOR_STORE]   Using where filter: {where_filter}")
         
         # Generate query embedding

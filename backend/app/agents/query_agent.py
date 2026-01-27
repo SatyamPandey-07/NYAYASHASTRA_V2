@@ -53,46 +53,42 @@ class QueryUnderstandingAgent(BaseAgent):
             context.entities.extend([{"type": "section", "value": s} for s in sections])
             logger.info(f"Extracted sections: {sections}")
         
-        # 3. Detect legal domain
-        await self._init_classifier()
-        predicted_domain, confidence, all_scores = await self.domain_classifier.classify(query)
+        # 3. Use LLM for intelligent domain detection
+        from app.services.llm_router import LLMRouter
+        from app.services.ollama_service import OllamaService
         
-        # DEBUG: Log classification results for troubleshooting
-        logger.info(f"[GUARDRAIL DEBUG] Query: '{query[:50]}...'")
-        logger.info(f"[GUARDRAIL DEBUG] Predicted domain: {predicted_domain} (confidence: {confidence:.3f})")
-        logger.info(f"[GUARDRAIL DEBUG] All scores: {all_scores}")
-        logger.info(f"[GUARDRAIL DEBUG] Specified domain: {context.specified_domain}")
+        # Initialize LLM router
+        if not hasattr(self, 'llm_router'):
+            ollama = OllamaService()
+            await ollama.initialize()
+            self.llm_router = LLMRouter(ollama)
         
         if context.specified_domain and context.specified_domain != "all":
-            context.detected_domain = context.specified_domain
-            logger.info(f"Using specified domain: {context.detected_domain}")
+            # User selected a specific domain - verify it matches the query
+            is_match, suggested_domain = await self.llm_router.verify_domain_match(
+                query, context.specified_domain
+            )
             
-            # GUARDRAIL: Verify if query is relevant to the specified domain
-            # Use 'Sticky Domain' logic: allow if selected is match, close, or strong.
-            selected_score = all_scores.get(context.specified_domain, 0)
-            top_score = confidence
-            
-            logger.info(f"[GUARDRAIL DEBUG] Selected domain '{context.specified_domain}' score: {selected_score:.3f}")
-            
-            is_match = (predicted_domain == context.specified_domain)
-            is_close = (selected_score > (top_score * 0.5) and selected_score > 0.1)
-            is_strong = (selected_score > 0.2)
-            
-            logger.info(f"[GUARDRAIL DEBUG] is_match={is_match}, is_close={is_close}, is_strong={is_strong}")
-            
-            if not (is_match or is_close or is_strong):
+            if not is_match:
+                # Domain mismatch - inform user
+                context.detected_domain = suggested_domain
                 context.is_relevant = False
                 context.rejection_message = (
-                    f"⚠️ This query appears to be related to **{predicted_domain}** law, "
-                    f"not **{context.specified_domain}** law. "
-                    f"To ensure legal accuracy, I only answer {context.specified_domain} queries in this mode. "
-                    f"Please switch to the **{predicted_domain}** domain for a detailed response."
+                    f"⚠️ Your query appears to be about **{suggested_domain}** law, "
+                    f"but you've selected **{context.specified_domain}** domain. "
+                    f"Please switch to the correct domain for accurate results."
                 )
-                logger.warning(f"[GUARDRAIL TRIGGERED] Query '{query}' classified as {predicted_domain}, not {context.specified_domain}")
-                logger.warning(f"[GUARDRAIL TRIGGERED] Scores - top: {top_score:.3f}, selected: {selected_score:.3f}")
+                logger.warning(f"[DOMAIN] Mismatch - query is {suggested_domain}, user selected {context.specified_domain}")
+            else:
+                context.detected_domain = context.specified_domain
+                context.is_relevant = True
+                logger.info(f"[DOMAIN] Using specified domain: {context.detected_domain}")
         else:
-            context.detected_domain = predicted_domain
-            logger.info(f"Automatically detected domain: {context.detected_domain} (conf: {confidence:.2f})")
+            # Auto-detect domain using LLM
+            detected_domain, confidence = await self.llm_router.detect_domain(query)
+            context.detected_domain = detected_domain
+            context.is_relevant = True
+            logger.info(f"[DOMAIN] Auto-detected: {detected_domain} (confidence: {confidence:.2f})")
         
         # 4. Detect if IPC or BNS specific
         is_ipc = bool(IPC_PATTERN.search(context.query))
@@ -218,3 +214,90 @@ class QueryUnderstandingAgent(BaseAgent):
             parts.append(f"(Sections: {', '.join(sections)})")
         
         return " ".join(parts)
+    
+    def _classify_by_keywords(self, query: str) -> str:
+        """Simple keyword-based domain classification as reliable fallback."""
+        query_lower = query.lower()
+        
+        # Criminal law keywords (highest priority for legal queries)
+        criminal_keywords = [
+            'murder', 'culpable homicide', 'attempt to murder', 'assault', 'theft', 'robbery', 
+            'burglary', 'rape', 'sexual assault', 'kidnapping', 'abduction', 'extortion',
+            'cheating', 'fraud', 'forgery', 'defamation', 'trespass', 'hurt', 'grievous hurt',
+            'wrongful restraint', 'wrongful confinement', 'criminal intimidation', 
+            'mischief', 'rioting', 'unlawful assembly', 'affray', 'ipc', 'crpc', 'bns', 'bnss',
+            'section 302', 'section 307', 'section 420', 'section 498a', 'bail', 'cognizable',
+            'non-cognizable', 'bailable', 'non-bailable', 'fir', 'charge sheet', 'criminal case',
+            'punishment', 'sentence', 'imprisonment', 'fine', 'accused', 'crime', 'offense'
+        ]
+        
+        # Corporate/Company law keywords
+        corporate_keywords = [
+            'company', 'companies act', 'director', 'shareholder', 'board meeting',
+            'annual general meeting', 'agm', 'egm', 'memorandum', 'articles of association',
+            'incorporation', 'winding up', 'merger', 'acquisition', 'debenture', 'dividend',
+            'company secretary', 'corporate governance', 'sebi', 'securities'
+        ]
+        
+        # Traffic law keywords
+        traffic_keywords = [
+            'traffic', 'motor vehicle', 'driving license', 'challan', 'traffic violation',
+            'speed limit', 'drunk driving', 'hit and run', 'motor vehicles act', 
+            'traffic rules', 'red light', 'helmet', 'seat belt', 'vehicle'
+        ]
+        
+        # IT/Cyber law keywords
+        it_keywords = [
+            'cyber', 'cybercrime', 'hacking', 'data breach', 'phishing', 'identity theft',
+            'information technology act', 'it act', 'digital signature', 'electronic record',
+            'cyber security', 'online fraud', 'social media', 'data protection'
+        ]
+        
+        # Environment law keywords
+        environment_keywords = [
+            'environment', 'pollution', 'forest', 'wildlife', 'emission', 'waste',
+            'environment protection act', 'air pollution', 'water pollution', 'noise pollution',
+            'green tribunal', 'ngt', 'environmental clearance', 'biodiversity'
+        ]
+        
+        # Constitutional law keywords
+        constitutional_keywords = [
+            'constitution', 'fundamental rights', 'directive principles', 'article',
+            'amendment', 'supreme court', 'high court', 'writ', 'habeas corpus',
+            'mandamus', 'certiorari', 'prohibition', 'quo warranto', 'judicial review'
+        ]
+        
+        # Property law keywords
+        property_keywords = [
+            'property', 'land', 'immovable property', 'sale deed', 'transfer of property',
+            'lease', 'mortgage', 'easement', 'possession', 'title', 'registration',
+            'stamp duty', 'conveyance', 'gift deed', 'partition', 'inheritance'
+        ]
+        
+        # Civil law keywords
+        civil_keywords = [
+            'contract', 'agreement', 'breach of contract', 'damages', 'specific performance',
+            'injunction', 'suit', 'plaintiff', 'defendant', 'civil procedure code', 'cpc',
+            'decree', 'appeal', 'revision', 'limitation', 'tort', 'negligence', 'nuisance'
+        ]
+        
+        # Check each domain (order matters - more specific first)
+        if any(keyword in query_lower for keyword in criminal_keywords):
+            return "criminal"
+        elif any(keyword in query_lower for keyword in corporate_keywords):
+            return "corporate"
+        elif any(keyword in query_lower for keyword in traffic_keywords):
+            return "traffic"
+        elif any(keyword in query_lower for keyword in it_keywords):
+            return "it_cyber"
+        elif any(keyword in query_lower for keyword in environment_keywords):
+            return "environment"
+        elif any(keyword in query_lower for keyword in constitutional_keywords):
+            return "constitutional"
+        elif any(keyword in query_lower for keyword in property_keywords):
+            return "property"
+        elif any(keyword in query_lower for keyword in civil_keywords):
+            return "civil"
+        
+        # Default to criminal for legal queries, general otherwise
+        return "criminal" if any(word in query_lower for word in ['law', 'legal', 'section', 'act', 'case']) else "general"

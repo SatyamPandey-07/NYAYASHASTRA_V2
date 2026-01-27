@@ -59,16 +59,17 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
+              {/* Landing page for non-authenticated users */}
               <Route
                 path="/"
                 element={
                   <>
-                    <SignedIn>
-                      <Index />
-                    </SignedIn>
                     <SignedOut>
                       <LandingPageWrapper />
                     </SignedOut>
+                    <SignedIn>
+                      <Index />
+                    </SignedIn>
                   </>
                 }
               />

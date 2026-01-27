@@ -38,15 +38,41 @@ class ResponseSynthesisAgent(BaseAgent):
         # Ensure LLM service is available
         if not self.llm_service:
             try:
-                from app.services.llm_service import get_llm_service
-                self.llm_service = await get_llm_service()
+                # Use Ollama service for local LLM
+                from app.services.ollama_service import OllamaService
+                self.llm_service = OllamaService()
+                await self.llm_service.initialize()
+                logger.info("✅ Ollama service initialized in ResponseAgent")
             except Exception as e:
-                logger.error(f"Failed to initialize LLM service in ResponseSynthesisAgent: {e}")
+                logger.error(f"Failed to initialize Ollama service in ResponseAgent: {e}")
         
-        # Build response based on available data
-        if self.llm_service and self.llm_service.provider:
-            response = await self._generate_llm_response(context)
-        else:
+        # Check if query was rejected due to domain mismatch
+        if not context.is_relevant and context.rejection_message:
+            logger.warning(f"[RESPONSE_AGENT] Query rejected: {context.rejection_message}")
+            # Return rejection message
+            response = {
+                "en": context.rejection_message,
+                "hi": context.rejection_message,
+                "primary": context.rejection_message,
+                "detected_language": context.detected_language or "en"
+            }
+            context.response = response.get("primary", "")
+            context.response_hi = response.get("hi", "")
+            return context
+        
+        # ALWAYS try LLM response first - template only as last resort
+        response = None
+        if self.llm_service and self.llm_service._initialized:
+            try:
+                response = await self._generate_llm_response(context)
+                logger.info("✅ LLM response generated successfully")
+            except Exception as e:
+                logger.error(f"LLM response generation failed: {e}")
+                response = None
+        
+        # Fallback to template only if LLM completely fails
+        if not response or not response.get("primary"):
+            logger.warning("Using template response as LLM generation failed")
             response = self._generate_template_response(context)
         
         # Use primary response (in detected language) as the main content
@@ -58,132 +84,73 @@ class ResponseSynthesisAgent(BaseAgent):
         return context
     
     async def _generate_llm_response(self, context: AgentContext) -> Dict[str, str]:
-        """Generate response using LLM and SystemPromptBuilder with strict domain guardrails."""
+        """Generate response using LLM - simplified with minimal prompt."""
         try:
-            from app.services.system_prompt import get_system_prompt
-            from app.services.retriever_service import QueryClassifier
+            logger.info(f"[RESPONSE_AGENT] Starting LLM response generation")
+            logger.info(f"[RESPONSE_AGENT] Query: {context.query[:80]}...")
+            logger.info(f"[RESPONSE_AGENT] Statutes count: {len(context.statutes)}")
+            logger.info(f"[RESPONSE_AGENT] Domain: {context.detected_domain}")
             
-            print(f"\n[RESPONSE_AGENT] _generate_llm_response called")
-            print(f"[RESPONSE_AGENT]   Query: {context.query[:80]}...")
-            print(f"[RESPONSE_AGENT]   Statutes count: {len(context.statutes)}")
-            print(f"[RESPONSE_AGENT]   LLM provider: {self.llm_service.provider if self.llm_service else 'None'}")
+            # Use LLM to filter and rank documents by relevance
+            from app.services.llm_router import LLMRouter
             
-            # 1. Use centralized relevance guardrail from context (set by Query Agent with BM25)
-            is_relevant = context.is_relevant
-            rejection_message = context.rejection_message or ""
+            if not hasattr(self, 'llm_router') and context.statutes:
+                self.llm_router = LLMRouter(self.llm_service)
             
-            print(f"[RESPONSE_AGENT]   is_relevant from context: {is_relevant}")
-            print(f"[RESPONSE_AGENT]   specified_domain: {context.specified_domain}")
-            logger.info(f"[RESPONSE AGENT] is_relevant from context: {is_relevant}")
-            logger.info(f"[RESPONSE AGENT] rejection_message from context: {rejection_message[:50] if rejection_message else 'None'}")
+            # Let LLM select most relevant documents
+            relevant_docs = context.statutes
+            if hasattr(self, 'llm_router') and len(context.statutes) > 3:
+                try:
+                    relevant_docs = await self.llm_router.evaluate_documents(
+                        context.query, 
+                        context.statutes, 
+                        context.detected_domain,
+                        top_k=3
+                    )
+                    logger.info(f"[RESPONSE_AGENT] LLM selected {len(relevant_docs)} most relevant docs")
+                except Exception as e:
+                    logger.warning(f"[RESPONSE_AGENT] LLM document filtering failed: {e}")
+                    relevant_docs = context.statutes[:3]
+            else:
+                relevant_docs = context.statutes[:3]
             
-            # If still considered relevant but a domain mismatch was flagged by keywords/fallback
-            # This is a double check to ensure absolute reliability
-            if is_relevant and context.specified_domain and context.specified_domain != "all":
-                from app.services.retriever_service import QueryClassifier
-                keyword_check = QueryClassifier.is_query_relevant_to_domain(context.query, context.specified_domain)
-                print(f"[RESPONSE_AGENT]   Keyword relevance check: {keyword_check}")
-                logger.info(f"[RESPONSE AGENT] Keyword relevance check for '{context.specified_domain}': {keyword_check}")
-                
-                if not keyword_check:
-                     # Final LLM verify if keywords also fail
-                     print(f"[RESPONSE_AGENT]   Running LLM verification...")
-                     logger.info(f"[RESPONSE AGENT] Running LLM verification for domain relevance...")
-                     is_relevant = await self._verify_relevance_with_llm(context.query, context.specified_domain)
-                     print(f"[RESPONSE_AGENT]   LLM verification result: {is_relevant}")
-                     logger.info(f"[RESPONSE AGENT] LLM verification result: {is_relevant}")
-                     if not is_relevant:
-                         rejection_message = f"⚠️ I couldn't find a strong connection between your query and **{context.specified_domain}** law."
+            # Build minimal context from LLM-selected documents
+            context_parts = []
+            for i, s in enumerate(relevant_docs, 1):
+                content = s.get("content_en", s.get("content", ""))[:800]  # Max 800 chars each
+                filename = s.get("filename", "statute")
+                context_parts.append(f"[{i}] {filename}: {content}")
             
-            # 2. Build the System Prompt with Context
-            docs = []
-            for s in context.statutes:
-                docs.append({
-                    "content": s.get("content_en", s.get("content", "")),
-                    "filename": s.get("filename") or s.get("act_code") or "Statute",
-                    "category": s.get("domain", s.get("category", ""))
-                })
+            context_text = "\n\n".join(context_parts) if context_parts else "No specific legal documents available."
             
-            print(f"[RESPONSE_AGENT]   Building system prompt with {len(docs)} documents")
-            if docs:
-                for i, d in enumerate(docs[:3]):
-                    print(f"[RESPONSE_AGENT]     Doc {i+1}: {d.get('filename', 'unknown')[:30]} | {d.get('category', 'N/A')} | content length: {len(d.get('content', ''))}")
+            logger.info(f"[RESPONSE_AGENT] Context length: {len(context_text)} chars")
             
-            system_prompt = get_system_prompt(
-                user_query=context.query,
-                documents=docs,
-                sql_results=context.ipc_bns_mappings,
-                fallback_message=rejection_message,
-                selected_category=context.specified_domain
-            )
-            
-            print(f"[RESPONSE_AGENT]   System prompt length: {len(system_prompt)} chars")
-            
-            # 3. Handle strict rejection
-            if not is_relevant and rejection_message:
-                logger.warning(f"Domain mismatch detected. Query: {context.query}, Domain: {context.specified_domain}. Rejecting.")
-                
-                # If Hindi/Hinglish detected, translate rejection
-                if context.detected_language == "hi":
-                    rejection_message_hi = await self._translate_to_hindi(rejection_message)
-                else:
-                    rejection_message_hi = rejection_message # Fallback
-                
-                return {
-                    "en": rejection_message,
-                    "hi": rejection_message_hi,
-                    "primary": rejection_message_hi if context.detected_language == "hi" else rejection_message,
-                    "detected_language": context.detected_language or "en"
-                }
+            # Minimal system prompt for Ollama (reduce token count)
+            system_prompt = f"""You are a legal assistant. Answer the user's question based on these Indian legal documents:
 
-            # 4. Generate response
-            response_language = context.detected_language or "en"
+{context_text}
+
+Provide a clear, concise answer (max 150 words). Reference specific sections when available."""
             
-            # We use a single prompt now that handles language mirroring
+            # Build messages
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": context.query}
             ]
             
+            logger.info(f"[RESPONSE_AGENT] System prompt: {len(system_prompt)} chars")
+            logger.info(f"[RESPONSE_AGENT] Calling Ollama...")
+            
+            # Call Ollama with shorter response length
             primary_response = await self.llm_service.generate_chat(messages)
             
-            # Generate Hindi translation if not already in Hindi
-            secondary_response = ""
-            if response_language != "hi":
-                translate_prompt = f"Translate this legal response to Hindi, maintaining professional legal terminology:\n\n{primary_response}"
-                secondary_response = await self.llm_service.generate(translate_prompt)
-            else:
-                secondary_response = primary_response
-            
-            # 5. Extract takeaways and update context citations
-            parsed_citations = self._parse_takeaways(primary_response)
-            for c_info in parsed_citations:
-               # Clean the takeaway text
-               takeaway = self._clean_legal_text(c_info['takeaway'])
-               
-               # Find matching citation in context and add takeaway
-               for existing_c in context.citations:
-                   # Match by source name or section number
-                   match_source = c_info['source'].lower() in existing_c.get('title', '').lower()
-                   match_section = c_info['section'] in existing_c.get('title', '')
-                   
-                   if match_source and match_section:
-                       existing_c['takeaway'] = takeaway
-                       # Also clean the existing excerpt if it's messy
-                       if existing_c.get('excerpt'):
-                           existing_c['excerpt'] = self._clean_legal_text(existing_c['excerpt'])
-                       break
-            
-            # Clean all context excerpts regardless of takeaway match
-            for c in context.citations:
-                if c.get('excerpt'):
-                    c['excerpt'] = self._clean_legal_text(c['excerpt'])
+            logger.info(f"[RESPONSE_AGENT] ✅ Got response ({len(primary_response)} chars)")
             
             return {
-                "en": primary_response if response_language == "en" else await self.llm_service.generate(f"Translate this to English:\n\n{primary_response}"),
-                "hi": secondary_response,
+                "en": primary_response,
+                "hi": primary_response,  # Skip translation for now
                 "primary": primary_response,
-                "detected_language": response_language
+                "detected_language": context.detected_language or "en"
             }
         except Exception as e:
             logger.error(f"LLM response generation failed: {e}")
@@ -381,9 +348,14 @@ class ResponseSynthesisAgent(BaseAgent):
         response_en = "".join(response_parts_en) + DISCLAIMER_EN
         response_hi = "".join(response_parts_hi) + DISCLAIMER_HI
         
+        # Determine primary language based on context
+        primary = response_hi if context.detected_language == "hi" else response_en
+        
         return {
             "en": response_en,
-            "hi": response_hi
+            "hi": response_hi,
+            "primary": primary,
+            "detected_language": context.detected_language or "en"
         }
     
     async def _verify_relevance_with_llm(self, query: str, domain: str) -> bool:

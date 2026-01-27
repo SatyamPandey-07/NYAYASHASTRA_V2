@@ -1,5 +1,6 @@
 # NyayGuru AI Pro - Backend Dependencies
-
+# psycopg2  # Requires PostgreSQL dev libraries
+psycopg2-binary  # Pre-compiled, easier to install
 # Core Framework
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
@@ -18,10 +19,16 @@ langchain>=0.1.0
 langchain-community>=0.0.16
 langchain-openai>=0.1.0
 langchain-groq>=0.1.0
+langchain-experimental>=0.0.50  # For semantic chunking
+
+# Local RAG Pipeline - BGE Models (State-of-the-Art)
+FlagEmbedding>=1.2.0  # BGE-M3 embeddings + BGE-Reranker-v2-m3
+rank-bm25>=0.2.2  # BM25 for keyword search
 
 # AI/LLM
 openai>=1.10.0
 tiktoken>=0.5.0
+httpx>=0.26.0  # For Ollama API calls
 
 # PDF Processing
 pypdf2>=3.0.1
@@ -35,7 +42,6 @@ pydantic-settings>=2.1.0
 
 # Async Support
 aiohttp>=3.9.0
-httpx>=0.26.0
 
 # Caching
 redis>=5.0.1
