@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nyayashastra-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./nyayguru.db
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://frontend
+      - CHROMA_PERSIST_DIR=/app/chroma_db
+      - USE_LOCAL_LLM=false
+    volumes:
+      - ./backend/chroma_db:/app/chroma_db
+      - ./backend/data:/app/data
+      - backend-db:/app
+    restart: unless-stopped
+    networks:
+      - nyayashastra-network
+
+  # Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nyayashastra-frontend
+    ports:
+      - "80:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - nyayashastra-network
+
+volumes:
+  backend-db:
+
+networks:
+  nyayashastra-network:
+    driver: bridge

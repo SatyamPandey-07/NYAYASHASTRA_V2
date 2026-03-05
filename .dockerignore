@@ -1,0 +1,22 @@
+node_modules
+dist
+.git
+.gitignore
+*.log
+.env
+.env.local
+.DS_Store
+coverage
+.vscode
+.idea
+*.md
+!README.md
+
+# Exclude large backend data from frontend build context
+backend/data/
+backend/chroma_db/
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+docs/

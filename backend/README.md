@@ -40,6 +40,16 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - **ReDoc**: http://localhost:8000/redoc
 - **Health Check**: http://localhost:8000/health
 
+## 🚢 Deployment
+
+For production deployment (Docker, Railway, Render, AWS, etc.), see **[DEPLOYMENT.md](../DEPLOYMENT.md)** in the root directory.
+
+**Quick Deploy with Docker:**
+```bash
+# From project root
+docker-compose up -d
+```
+
 ## 🏗️ Architecture
 
 ### Multi-Agent Pipeline
