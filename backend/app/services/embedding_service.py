@@ -16,19 +16,11 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 logger = logging.getLogger(__name__)
 
-try:
-    from FlagEmbedding import BGEM3FlagModel
-    BGE_M3_AVAILABLE = True
-except (ImportError, NameError):
-    BGEM3FlagModel = None
-    BGE_M3_AVAILABLE = False
-    logger.warning("BGE-M3 not available. Install with: pip install FlagEmbedding")
-
-try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
+# Imports moved inside for lazy loading to save RAM on cloud
+BGE_M3_AVAILABLE = True
+SENTENCE_TRANSFORMERS_AVAILABLE = True
+BGEM3FlagModel = None
+SentenceTransformer = None
 
 
 class EmbeddingService:
@@ -77,31 +69,26 @@ class EmbeddingService:
             return
             
         try:
-            if BGE_M3_AVAILABLE and "bge-m3" in self.model_name.lower():
-                logger.info(f"Loading BGE-M3 model: {self.model_name}")
-                self.model = BGEM3FlagModel(
-                    self.model_name,
-                    use_fp16=self.use_fp16  # Faster inference on CPU/GPU
-                )
-                logger.info("✅ BGE-M3 model loaded successfully")
-                logger.info(f"   - Supports: Multi-lingual (Hindi + English)")
-                logger.info(f"   - Context Length: 8192 tokens")
-                logger.info(f"   - Embedding Dimension: {self.embedding_dim}")
-                
-            elif SENTENCE_TRANSFORMERS_AVAILABLE:
-                logger.warning("BGE-M3 not available, falling back to sentence-transformers")
-                # Fallback to a good sentence-transformer model
-                fallback_model = "sentence-transformers/all-MiniLM-L6-v2"
-                logger.info(f"Loading fallback model: {fallback_model}")
-                self.model = SentenceTransformer(fallback_model)
+            # Lazy imports
+            if "bge-m3" in self.model_name.lower():
+                try:
+                    from FlagEmbedding import BGEM3FlagModel
+                    logger.info(f"Loading BGE-M3 model: {self.model_name}")
+                    self.model = BGEM3FlagModel(
+                        self.model_name,
+                        use_fp16=self.use_fp16
+                    )
+                    logger.info("✅ BGE-M3 model loaded successfully")
+                except (ImportError, NameError):
+                    logger.warning("BGE-M3 not available. Falling back...")
+                    self.model_name = "sentence-transformers/all-MiniLM-L6-v2"
+            
+            if not self.model:
+                from sentence_transformers import SentenceTransformer
+                logger.info(f"Loading sentence-transformer model: {self.model_name}")
+                self.model = SentenceTransformer(self.model_name)
                 self.embedding_dim = self.model.get_sentence_embedding_dimension()
-                logger.info(f"✅ Fallback model loaded (dim: {self.embedding_dim})")
-            else:
-                raise ImportError(
-                    "No embedding libraries available. Install with:\n"
-                    "pip install FlagEmbedding  # For BGE-M3 (recommended)\n"
-                    "pip install sentence-transformers  # For fallback"
-                )
+                logger.info(f"✅ Model {self.model_name} loaded (dim: {self.embedding_dim})")
             
             self._initialized = True
             
