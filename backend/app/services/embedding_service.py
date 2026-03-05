@@ -37,18 +37,38 @@ class EmbeddingService:
     Falls back to sentence-transformers if BGE-M3 is not available.
     """
     
-    def __init__(self, model_name: str = "BAAI/bge-m3", use_fp16: bool = False):
+    def __init__(self, model_name: str = None, use_fp16: bool = False):
         """
         Initialize embedding service (MEMORY-OPTIMIZED).
         
         Args:
-            model_name: Model identifier (default: BAAI/bge-m3)
+            model_name: Model identifier (defaults to settings.embedding_model)
             use_fp16: Use half precision - DISABLED for CPU stability
         """
-        self.model_name = model_name
+        from app.config import settings
+        
+        # Detected cloud environment with limited RAM
+        is_cloud = os.environ.get('RENDER', 'false') == 'true' or os.environ.get('RAILWAY_STATIC_URL') is not None
+        
+        if model_name:
+            self.model_name = model_name
+        elif is_cloud:
+            # FORCE a tiny model for cloud to prevent OOM (512MB RAM limit)
+            logger.info("Cloud environment detected. Using tiny embedding model to save RAM.")
+            self.model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        else:
+            self.model_name = settings.embedding_model
+            
         self.use_fp16 = False  # Force FP32 for CPU stability
         self.model = None
-        self.embedding_dim = 1024  # BGE-M3 outputs 1024-dim vectors
+        # Adjust dimension based on model name
+        if "bge-m3" in self.model_name.lower():
+            self.embedding_dim = 1024
+        elif "all-MiniLM-L6-v2" in self.model_name.lower():
+            self.embedding_dim = 384
+        else:
+            self.embedding_dim = 768 # Default for MiniLM-L12
+            
         self._initialized = False
         
     def initialize(self):

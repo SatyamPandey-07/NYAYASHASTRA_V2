@@ -46,19 +46,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
     
-    # Initialize vector store (required for hybrid search)
-    try:
-        from app.services.vector_store import get_vector_store
-        vector_store = await get_vector_store()
-        logger.info("Vector store initialized successfully")
-        
-        # Initialize BM25 domain classifier with vector store for hybrid scoring
-        from app.services.bm25_service import get_domain_classifier
-        classifier = await get_domain_classifier()
-        logger.info("BM25 domain classifier initialized successfully")
-    except Exception as e:
-        logger.warning(f"Vector store/classifier initialization issue: {e}")
-        logger.warning("Guardrails may not work optimally without vector store")
+    # Skip heavy AI services during startup on low-RAM cloud environments
+    # They will be lazily loaded when first needed, or can be disabled
+    is_cloud = os.environ.get('RENDER', 'false') == 'true' or os.environ.get('RAILWAY_STATIC_URL') is not None
+    
+    if not is_cloud:
+        # Initialize vector store (required for hybrid search)
+        try:
+            from app.services.vector_store import get_vector_store
+            vector_store = await get_vector_store()
+            logger.info("Vector store initialized successfully")
+            
+            # Initialize BM25 domain classifier with vector store for hybrid scoring
+            from app.services.bm25_service import get_domain_classifier
+            classifier = await get_domain_classifier()
+            logger.info("BM25 domain classifier initialized successfully")
+        except Exception as e:
+            logger.warning(f"Vector store/classifier initialization issue: {e}")
+            logger.warning("Guardrails may not work optimally without vector store")
+    else:
+        logger.info("Cloud environment detected. Delaying vector store initialization to save startup RAM.")
     
     logger.info("NyayGuru AI Pro started successfully!")
     
