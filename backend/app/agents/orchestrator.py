@@ -10,13 +10,7 @@ import logging
 import uuid
 
 from app.agents.base import AgentContext, BaseAgent
-from app.agents.query_agent import QueryUnderstandingAgent
-from app.agents.statute_agent import StatuteRetrievalAgent
-from app.agents.case_agent import CaseLawAgent
-from app.agents.regulatory_agent import RegulatoryFilterAgent
-from app.agents.citation_agent import CitationAgent
-from app.agents.summarization_agent import SummarizationAgent
-from app.agents.response_agent import ResponseSynthesisAgent
+# Agents will be imported lazily inside __init__ to save RAM
 from app.schemas import AgentType, AgentStatus, AgentProcessingStep, ChatStreamChunk
 
 logger = logging.getLogger(__name__)
@@ -27,6 +21,15 @@ class AgentOrchestrator:
     
     def __init__(self, vector_store=None, llm_service=None, statute_service=None, case_service=None):
         """Initialize orchestrator with optional services."""
+        # Lazy imports for agents
+        from app.agents.query_agent import QueryUnderstandingAgent
+        from app.agents.statute_agent import StatuteRetrievalAgent
+        from app.agents.case_agent import CaseLawAgent
+        from app.agents.regulatory_agent import RegulatoryFilterAgent
+        from app.agents.citation_agent import CitationAgent
+        from app.agents.summarization_agent import SummarizationAgent
+        from app.agents.response_agent import ResponseSynthesisAgent
+        
         self.vector_store = vector_store
         self.llm_service = llm_service
         self.statute_service = statute_service

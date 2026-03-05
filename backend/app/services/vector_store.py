@@ -6,21 +6,9 @@ Handles vector embeddings and semantic search using ChromaDB.
 from typing import List, Dict, Any, Optional
 import logging
 
-try:
-    import chromadb
-    from chromadb.config import Settings
-    CHROMA_AVAILABLE = True
-except ImportError:
-    CHROMA_AVAILABLE = False
-
-try:
-    from sentence_transformers import SentenceTransformer
-    from rank_bm25 import BM25Okapi
-    import re
-    import numpy as np
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
+# Heavy imports removed from top level to save RAM on cloud
+CHROMA_AVAILABLE = True
+SENTENCE_TRANSFORMERS_AVAILABLE = True
 
 from app.config import settings
 
@@ -45,6 +33,7 @@ class VectorStoreService:
             return
         
         try:
+            import chromadb
             if CHROMA_AVAILABLE:
                 # Initialize ChromaDB with new API
                 self.client = chromadb.PersistentClient(
@@ -244,6 +233,14 @@ class VectorStoreService:
         if not documents:
             return []
             
+        import re
+        import numpy as np
+        try:
+            from rank_bm25 import BM25Okapi
+        except ImportError:
+            logger.warning("BM25 not available, skipping re-rank")
+            return documents
+            
         # Get contents for BM25
         contents = [doc.get("content", "") for doc in documents]
         
@@ -259,8 +256,9 @@ class VectorStoreService:
         bm25_scores = bm25.get_scores(tokenized_query)
         
         # Normalize BM25 scores
-        if max(bm25_scores) > 0:
-            bm25_scores = bm25_scores / max(bm25_scores)
+        max_bm25 = max(bm25_scores) if len(bm25_scores) > 0 else 0
+        if max_bm25 > 0:
+            bm25_scores = bm25_scores / max_bm25
             
         # Combine with Vector score (1 - distance)
         for i, doc in enumerate(documents):
